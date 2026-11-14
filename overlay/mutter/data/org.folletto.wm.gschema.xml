@@ -20,9 +20,9 @@
       <summary>Outer gap around the workspace</summary>
     </key>
     <key name="default-layout" type="s">
-      <default>'splith'</default>
+      <default>'grid'</default>
       <summary>Default split layout for new containers</summary>
-      <description>splith, splitv, tabbed or stacked</description>
+      <description>grid (auto H/V), splith, splitv, tabbed or stacked</description>
     </key>
     <key name="toggle-mode" type="as">
       <default><![CDATA[['<Super><Shift>t']]]></default>
@@ -67,6 +67,10 @@
     <key name="split-v" type="as">
       <default><![CDATA[['<Super>v']]]></default>
       <summary>Split vertical</summary>
+    </key>
+    <key name="layout-grid" type="as">
+      <default><![CDATA[['<Super>g']]]></default>
+      <summary>Grid layout (auto horizontal/vertical splits)</summary>
     </key>
     <key name="layout-tabbed" type="as">
       <default><![CDATA[['<Super>w']]]></default>

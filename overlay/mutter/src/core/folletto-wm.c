@@ -35,6 +35,7 @@
 
 typedef enum
 {
+  FOLLETTO_LAYOUT_GRID,     /* auto: split binari H/V alternati sul focus */
   FOLLETTO_LAYOUT_SPLITH,
   FOLLETTO_LAYOUT_SPLITV,
   FOLLETTO_LAYOUT_TABBED,
@@ -528,6 +529,8 @@ layout_name (FollettoLayout layout)
 {
   switch (layout)
     {
+    case FOLLETTO_LAYOUT_GRID:
+      return "grid";
     case FOLLETTO_LAYOUT_SPLITV:
       return "splitv";
     case FOLLETTO_LAYOUT_TABBED:
@@ -549,13 +552,39 @@ folletto_wm_get_layout (FollettoWm *wm)
     return "normal";
 
   leaf = focused_leaf (wm);
+  if (leaf && leaf->floating)
+    return "floating";
+  /* Griglia è una strategia di inserimento: le celle restano splith/splitv. */
+  if (wm->next_layout == FOLLETTO_LAYOUT_GRID)
+    return "grid";
   if (!leaf)
     return layout_name (wm->next_layout);
-  if (leaf->floating)
-    return "floating";
   if (leaf->parent)
     return layout_name (leaf->parent->layout);
   return layout_name (leaf->layout);
+}
+
+/* Prossimo asse in modalità griglia: prima metà SX/DX, poi alterna. */
+static FollettoLayout
+grid_split_for_focus (FollettoNode *focus)
+{
+  if (focus && focus->parent &&
+      (focus->parent->layout == FOLLETTO_LAYOUT_SPLITH ||
+       focus->parent->layout == FOLLETTO_LAYOUT_SPLITV))
+    {
+      return focus->parent->layout == FOLLETTO_LAYOUT_SPLITH
+             ? FOLLETTO_LAYOUT_SPLITV
+             : FOLLETTO_LAYOUT_SPLITH;
+    }
+  return FOLLETTO_LAYOUT_SPLITH;
+}
+
+static FollettoLayout
+geometry_layout (FollettoLayout layout)
+{
+  if (layout == FOLLETTO_LAYOUT_GRID)
+    return FOLLETTO_LAYOUT_SPLITH;
+  return layout;
 }
 
 static void
@@ -915,6 +944,67 @@ on_grab_op_end (MetaDisplay *display,
 }
 
 static void
+insert_as_sibling (FollettoTree *tree,
+                   FollettoNode *focus,
+                   FollettoNode *leaf)
+{
+  FollettoNode *parent = focus->parent;
+  guint idx = 0, i;
+
+  for (i = 0; i < parent->children->len; i++)
+    {
+      if (g_ptr_array_index (parent->children, i) == focus)
+        {
+          idx = i + 1;
+          break;
+        }
+    }
+  leaf->parent = parent;
+  g_ptr_array_insert (parent->children, (int) idx, leaf);
+  normalize_percents (parent);
+  tree->focus = leaf;
+}
+
+/* Divide il nodo focus a metà e colloca la nuova foglia nell'altra metà. */
+static void
+insert_binary_split (FollettoTree   *tree,
+                     FollettoNode   *focus,
+                     FollettoNode   *leaf,
+                     FollettoLayout  layout)
+{
+  FollettoNode *split = node_new_split (geometry_layout (layout));
+  FollettoNode *target = focus;
+
+  if (!target)
+    target = tree->root;
+
+  if (!target || !target->parent)
+    {
+      if (tree->root)
+        {
+          g_ptr_array_add (split->children, tree->root);
+          tree->root->parent = split;
+          tree->root->percent = 0.5;
+        }
+      g_ptr_array_add (split->children, leaf);
+      leaf->parent = split;
+      leaf->percent = 0.5;
+      tree->root = split;
+    }
+  else
+    {
+      replace_in_parent (target, split);
+      target->parent = split;
+      target->percent = 0.5;
+      g_ptr_array_add (split->children, target);
+      leaf->parent = split;
+      leaf->percent = 0.5;
+      g_ptr_array_add (split->children, leaf);
+    }
+  tree->focus = leaf;
+}
+
+static void
 folletto_insert_window (FollettoWm *wm,
                         MetaWindow *window)
 {
@@ -945,41 +1035,37 @@ folletto_insert_window (FollettoWm *wm,
   focus = tree->focus;
   if (!tree->root)
     {
+      /* Prima finestra: schermo intero. */
       tree->root = leaf;
       tree->focus = leaf;
     }
+  else if (wm->next_layout == FOLLETTO_LAYOUT_GRID)
+    {
+      FollettoNode *target = (focus && !focus->floating) ? focus
+                                                         : first_leaf (tree->root);
+      FollettoNode *parent = target ? target->parent : NULL;
+
+      /* Completa uno split esplicito (container con un solo figlio). */
+      if (parent && parent->children && parent->children->len == 1 &&
+          (parent->layout == FOLLETTO_LAYOUT_SPLITH ||
+           parent->layout == FOLLETTO_LAYOUT_SPLITV) &&
+          !node_is_tab_container (parent))
+        {
+          insert_as_sibling (tree, target, leaf);
+        }
+      else
+        {
+          /* 2ª: metà; 3ª: spezza la 2ª in verticale → 2ª sopra, 3ª sotto; ecc. */
+          insert_binary_split (tree, target, leaf, grid_split_for_focus (target));
+        }
+    }
   else if (!focus || !focus->parent)
     {
-      FollettoNode *split = node_new_split (wm->next_layout);
-      if (tree->root)
-        {
-          g_ptr_array_add (split->children, tree->root);
-          tree->root->parent = split;
-          tree->root->percent = 0.5;
-        }
-      g_ptr_array_add (split->children, leaf);
-      leaf->parent = split;
-      leaf->percent = 0.5;
-      tree->root = split;
-      tree->focus = leaf;
+      insert_binary_split (tree, focus, leaf, wm->next_layout);
     }
   else
     {
-      FollettoNode *parent = focus->parent;
-      guint idx = 0, i;
-
-      for (i = 0; i < parent->children->len; i++)
-        {
-          if (g_ptr_array_index (parent->children, i) == focus)
-            {
-              idx = i + 1;
-              break;
-            }
-        }
-      leaf->parent = parent;
-      g_ptr_array_insert (parent->children, (int) idx, leaf);
-      normalize_percents (parent);
-      tree->focus = leaf;
+      insert_as_sibling (tree, focus, leaf);
     }
 
   g_signal_connect_swapped (window, "unmanaging",
@@ -1229,12 +1315,14 @@ cmd_split (FollettoWm    *wm,
   FollettoNode *split;
   FollettoTree *tree;
 
-  wm->next_layout = layout;
+  /* In griglia lo split esplicito prepara il prossimo slot senza uscire dalla modalità. */
+  if (wm->next_layout != FOLLETTO_LAYOUT_GRID)
+    wm->next_layout = layout;
   if (!leaf)
     return;
 
   tree = focused_tree (wm);
-  split = node_new_split (layout);
+  split = node_new_split (geometry_layout (layout));
   if (tree->root == leaf)
     {
       split->parent = NULL;
@@ -1263,16 +1351,23 @@ cmd_layout (FollettoWm    *wm,
   unfloat_tree (tree);
   if (!leaf)
     leaf = focused_leaf (wm);
+
+  wm->next_layout = layout;
+
+  /* Griglia: strategia di inserimento, non layout geometrico del container. */
+  if (layout == FOLLETTO_LAYOUT_GRID)
+    {
+      emit_layout_changed (wm);
+      return;
+    }
+
   if (!leaf)
     {
-      wm->next_layout = layout;
       emit_layout_changed (wm);
       return;
     }
   n = leaf->parent ? leaf->parent : leaf;
-  emit_layout_changed (wm);
   n->layout = layout;
-  wm->next_layout = layout;
   folletto_layout_tree (wm, tree);
   emit_layout_changed (wm);
 }
@@ -1540,8 +1635,10 @@ folletto_wm_command (FollettoWm *wm,
         cmd_layout (wm, FOLLETTO_LAYOUT_TABBED);
       else if (g_str_equal (parts[1], "stacked"))
         cmd_layout (wm, FOLLETTO_LAYOUT_STACKED);
-      else if (g_str_equal (parts[1], "splith") || g_str_equal (parts[1], "default") ||
-               g_str_equal (parts[1], "tiling"))
+      else if (g_str_equal (parts[1], "grid") || g_str_equal (parts[1], "griglia") ||
+               g_str_equal (parts[1], "default") || g_str_equal (parts[1], "tiling"))
+        cmd_layout (wm, FOLLETTO_LAYOUT_GRID);
+      else if (g_str_equal (parts[1], "splith"))
         cmd_layout (wm, FOLLETTO_LAYOUT_SPLITH);
       else if (g_str_equal (parts[1], "splitv"))
         cmd_layout (wm, FOLLETTO_LAYOUT_SPLITV);
@@ -1651,6 +1748,8 @@ on_i3_binding (MetaDisplay        *display,
     command = g_strdup ("layout tabbed");
   else if (g_str_equal (name, "layout-stacked"))
     command = g_strdup ("layout stacked");
+  else if (g_str_equal (name, "layout-grid"))
+    command = g_strdup ("layout grid");
   else if (g_str_equal (name, "layout-splith"))
     command = g_strdup ("layout splith");
   else if (g_str_equal (name, "layout-splitv"))
@@ -1693,7 +1792,7 @@ static const char *i3_binding_names[] = {
   "focus-left", "focus-right", "focus-up", "focus-down",
   "move-left", "move-right", "move-up", "move-down",
   "split-h", "split-v",
-  "layout-tabbed", "layout-stacked", "layout-splith", "layout-splitv",
+  "layout-grid", "layout-tabbed", "layout-stacked", "layout-splith", "layout-splitv",
   "layout-toggle-split",
   "floating-toggle", "fullscreen", "kill",
   "scratchpad-move", "scratchpad-show",
@@ -1798,7 +1897,7 @@ folletto_wm_new (MetaDisplay *display)
 
   wm->display = display;
   wm->mode = META_WM_MODE_NORMAL;
-  wm->next_layout = FOLLETTO_LAYOUT_SPLITH;
+  wm->next_layout = FOLLETTO_LAYOUT_GRID;
   wm->gaps_inner = 4;
   wm->gaps_outer = 4;
   wm->drag_window = NULL;
@@ -1960,6 +2059,11 @@ static FollettoLayout
 layout_from_name (const char *name)
 {
   if (!name)
+    return FOLLETTO_LAYOUT_GRID;
+  if (g_str_equal (name, "grid") || g_str_equal (name, "griglia") ||
+      g_str_equal (name, "default") || g_str_equal (name, "tiling"))
+    return FOLLETTO_LAYOUT_GRID;
+  if (g_str_equal (name, "splith"))
     return FOLLETTO_LAYOUT_SPLITH;
   if (g_str_equal (name, "splitv"))
     return FOLLETTO_LAYOUT_SPLITV;
@@ -1967,7 +2071,7 @@ layout_from_name (const char *name)
     return FOLLETTO_LAYOUT_TABBED;
   if (g_str_equal (name, "stacked"))
     return FOLLETTO_LAYOUT_STACKED;
-  return FOLLETTO_LAYOUT_SPLITH;
+  return FOLLETTO_LAYOUT_GRID;
 }
 
 static void

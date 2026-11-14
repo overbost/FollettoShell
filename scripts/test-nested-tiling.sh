@@ -85,14 +85,17 @@ elif command -v xclock >/dev/null; then
 fi
 sleep 1.2
 
+echo "Layout grid"
+call org.folletto.Wm.Command 'layout grid'
+sleep 0.8
 echo "Layout splith"
 call org.folletto.Wm.Command 'layout splith'
 sleep 0.8
 echo "Layout splitv"
 call org.folletto.Wm.Command 'layout splitv'
 sleep 0.8
-echo "Layout splith (drag)"
-call org.folletto.Wm.Command 'layout splith'
+echo "Layout grid (drag)"
+call org.folletto.Wm.Command 'layout grid'
 sleep 0.8
 
 DISPLAY="$HOST_DISPLAY" XAUTHORITY="${HOST_XAUTHORITY}" WAYLAND_DISPLAY= python3 - <<'PY'
@@ -161,8 +164,8 @@ sleep 1.2
 echo "Layout stacked"
 call org.folletto.Wm.Command 'layout stacked'
 sleep 1.2
-echo "Layout splith"
-call org.folletto.Wm.Command 'layout splith'
+echo "Layout grid"
+call org.folletto.Wm.Command 'layout grid'
 sleep 0.5
 
 echo "Mode/layout: $(call org.folletto.Wm.GetMode) $(call org.folletto.Wm.GetLayout)"

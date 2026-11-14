@@ -12,6 +12,7 @@ import * as Util from '../../misc/util.js';
 import {QuickToggle, SystemIndicator} from '../quickSettings.js';
 
 const LAYOUTS = [
+    {id: 'grid', title: _('Griglia'), command: 'layout grid', icon: 'view-app-grid-symbolic'},
     {id: 'splith', title: _('Tiling orizzontale'), command: 'layout splith', icon: 'view-grid-symbolic'},
     {id: 'splitv', title: _('Tiling verticale'), command: 'layout splitv', icon: 'view-dual-symbolic'},
     {id: 'tabbed', title: _('Tabbed'), command: 'layout tabbed', icon: 'tab-new-symbolic'},
@@ -25,7 +26,7 @@ const CELL_ACTIVE_STYLE =
     'border: 3px solid rgb(53,132,228); background-color: rgba(53,132,228,0.32); border-radius: 8px;';
 
 function layoutIcon(layout) {
-    return LAYOUTS.find(item => item.id === layout)?.icon ?? 'view-grid-symbolic';
+    return LAYOUTS.find(item => item.id === layout)?.icon ?? 'view-app-grid-symbolic';
 }
 
 function currentLayout() {

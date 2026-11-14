@@ -28,7 +28,7 @@ Toggle in nested mutter: `Super+Shift+t`. In GNOME Shell Folletto: Quick Setting
 
 - `focus|move left|right|up|down`
 - `split h|v|toggle`
-- `layout splith|splitv|tabbed|stacked|toggle`
+- `layout grid|splith|splitv|tabbed|stacked|toggle` — **grid** (default): split automatici sul focus (1ª schermo intero, 2ª a metà, 3ª spezza la 2ª in verticale, poi alterna H/V)
 - `floating toggle`
 - `fullscreen`
 - `kill`
