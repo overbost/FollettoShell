@@ -1,0 +1,81 @@
+diff --git a/js/js-resources.gresource.xml b/js/js-resources.gresource.xml
+index df23e5e..25c0b77 100644
+--- a/js/js-resources.gresource.xml
++++ b/js/js-resources.gresource.xml
+@@ -147,6 +147,7 @@
+     <file>ui/status/camera.js</file>
+     <file>ui/status/darkMode.js</file>
+     <file>ui/status/dwellClick.js</file>
++    <file>ui/status/folletto.js</file>
+     <file>ui/status/keyboard.js</file>
+     <file>ui/status/location.js</file>
+     <file>ui/status/network.js</file>
+diff --git a/js/ui/panel.js b/js/ui/panel.js
+index ff8b1b8..2a0f595 100644
+--- a/js/ui/panel.js
++++ b/js/ui/panel.js
+@@ -39,6 +39,7 @@ import {ATIndicator} from './status/accessibility.js';
+ import {InputSourceIndicator} from './status/keyboard.js';
+ import {DwellClickIndicator} from './status/dwellClick.js';
+ import {ScreenRecordingIndicator, ScreenSharingIndicator} from './status/remoteAccess.js';
++import * as Folletto from './status/folletto.js';
+ 
+ const PANEL_ICON_SIZE = 16;
+ const APP_MENU_ICON_MARGIN = 0;
+@@ -877,6 +878,22 @@ class Panel extends St.Widget {
+         this._sessionStyle = Main.sessionMode.panelStyle;
+         if (this._sessionStyle)
+             this.add_style_class_name(this._sessionStyle);
++
++        this._placeFollettoWorkspaces();
++    }
++
++    _placeFollettoWorkspaces() {
++        this._follettoWorkspaces ??= new Folletto.WorkspaceBar();
++        const box = this._leftBox;
++        if (this._follettoWorkspaces.get_parent() !== box)
++            box.add_child(this._follettoWorkspaces);
++
++        const activities = this.statusArea.activities?.container;
++        let index = 0;
++        if (activities?.get_parent() === box)
++            index = box.get_children().indexOf(activities) + 1;
++        box.set_child_at_index(this._follettoWorkspaces, index);
++        this._follettoWorkspaces.trackActivities(this.statusArea.activities ?? null);
+     }
+ 
+     _hideIndicators() {
+diff --git a/js/ui/windowManager.js b/js/ui/windowManager.js
+index 809b40f..d1453dd 100644
+--- a/js/ui/windowManager.js
++++ b/js/ui/windowManager.js
+@@ -214,6 +214,11 @@ class WorkspaceTracker {
+ 
+         this._workspaceSettings = new Gio.Settings({schema_id: 'org.gnome.mutter'});
+         this._workspaceSettings.connect('changed::dynamic-workspaces', this._queueCheckWorkspaces.bind(this));
++        try {
++            global.display.connect('wm-mode-changed', this._queueCheckWorkspaces.bind(this));
++        } catch {
++            /* stock mutter has no wm-mode-changed */
++        }
+ 
+         this._nWorkspacesChanged();
+     }
+@@ -236,6 +241,17 @@ class WorkspaceTracker {
+             return GLib.SOURCE_REMOVE;
+         }
+ 
++        // Folletto i3 keeps desktops 1–9. Dynamic removal would
++        // renumber the active workspace back to the first slot.
++        try {
++            if (global.display.get_wm_mode() === Meta.WmMode.I3) {
++                this._checkWorkspacesId = 0;
++                return GLib.SOURCE_REMOVE;
++            }
++        } catch {
++            /* unpatched mutter has no wm mode */
++        }
++
+         // Update workspaces only if Dynamic Workspace Management has not been paused by some other function
+         if (this._pauseWorkspaceCheck)
+             return GLib.SOURCE_CONTINUE;

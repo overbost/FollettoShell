@@ -11,6 +11,8 @@ import * as PopupMenu from '../popupMenu.js';
 import * as Util from '../../misc/util.js';
 import {QuickToggle, SystemIndicator} from '../quickSettings.js';
 
+const WORKSPACE_COUNT = 9;
+
 const LAYOUTS = [
     {id: 'splith', title: _('Tiling orizzontale'), command: 'layout splith', icon: 'view-grid-symbolic'},
     {id: 'splitv', title: _('Tiling verticale'), command: 'layout splitv', icon: 'view-dual-symbolic'},
@@ -297,6 +299,91 @@ class FollettoTabChrome {
         }
     }
 }
+
+export const WorkspaceBar = GObject.registerClass(
+class WorkspaceBar extends St.BoxLayout {
+    _init() {
+        super._init({
+            name: 'follettoWorkspaces',
+            style_class: 'panel-status-indicators-box',
+            y_expand: true,
+            y_align: Clutter.ActorAlign.CENTER,
+            accessible_name: _('Workspaces'),
+        });
+
+        this._buttons = [];
+        for (let i = 0; i < WORKSPACE_COUNT; i++) {
+            const number = i + 1;
+            const button = new St.Button({
+                style_class: 'panel-button',
+                label: `${number}`,
+                can_focus: true,
+                track_hover: true,
+                y_expand: true,
+                accessible_name: _('Workspace %d').replace('%d', `${number}`),
+            });
+            button.connect('clicked', () => {
+                i3Command(`workspace number ${number}`);
+            });
+            this.add_child(button);
+            this._buttons.push(button);
+        }
+
+        this._activities = null;
+        this._wm = global.workspace_manager;
+        this._display = global.display;
+        this._wm.connectObject(
+            'active-workspace-changed', () => this._sync(),
+            this);
+        this._display.connectObject(
+            'wm-mode-changed', () => this._sync(),
+            this);
+        Main.sessionMode.connectObject('updated', () => this._sync(), this);
+        this._sync();
+    }
+
+    trackActivities(button) {
+        this._activities = button ?? null;
+        this._sync();
+    }
+
+    _inUserSession() {
+        return Main.sessionMode.currentMode === 'user';
+    }
+
+    _inI3() {
+        try {
+            return this._display.get_wm_mode() === Meta.WmMode.I3;
+        } catch {
+            return false;
+        }
+    }
+
+    _sync() {
+        const show = this._inUserSession() && this._inI3();
+        this.visible = show;
+
+        if (this._activities)
+            this._activities.visible = !show;
+
+        if (!show)
+            return;
+
+        const time = global.get_current_time();
+        while (this._wm.n_workspaces < WORKSPACE_COUNT)
+            this._wm.append_new_workspace(false, time);
+
+        const active = this._wm.get_active_workspace_index();
+        for (let i = 0; i < this._buttons.length; i++) {
+            const button = this._buttons[i];
+            const current = i === active;
+            if (current)
+                button.add_style_pseudo_class('checked');
+            else
+                button.remove_style_pseudo_class('checked');
+        }
+    }
+});
 
 let _dragOverlay = null;
 let _tabChrome = null;
