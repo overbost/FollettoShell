@@ -3,6 +3,9 @@
 # Non sostituisce GNOME Debian. Socket: wayland-folletto.
 set -eu
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
+if [ -z "${FOLLETTO_IN_CHROOT:-}" ] && [ -x /var/tmp/folletto/debian/usr/bin/meson ]; then
+  exec "$SCRIPT_DIR/with-debian.sh" "$SCRIPT_DIR/run-shell-nested.sh" "$@"
+fi
 # shellcheck source=folletto-common.sh
 . "$SCRIPT_DIR/folletto-common.sh"
 

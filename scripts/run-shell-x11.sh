@@ -5,6 +5,9 @@
 # Non sostituisce il WM Debian (niente --replace su :0).
 set -eu
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
+if [ -z "${FOLLETTO_IN_CHROOT:-}" ] && [ -x /var/tmp/folletto/debian/usr/bin/meson ]; then
+  exec "$SCRIPT_DIR/with-debian.sh" "$SCRIPT_DIR/run-shell-x11.sh" "$@"
+fi
 # shellcheck source=folletto-common.sh
 . "$SCRIPT_DIR/folletto-common.sh"
 
