@@ -1,12 +1,15 @@
 #!/bin/sh
-# Wrapper sessione Folletto Wayland (per GDM, in prefix). Non usare --replace.
+# Wrapper sessione Folletto Wayland (GDM / display manager). Non usa --replace.
 set -eu
-ROOT=/var/tmp/folletto
-PREFIX=$ROOT/prefix
+PREFIX="${FOLLETTO_PREFIX:-/opt/folletto}"
+if [ ! -x "$PREFIX/bin/gnome-shell" ]; then
+  echo "Folletto non trovato in $PREFIX (manca gnome-shell)." >&2
+  exit 1
+fi
 export PATH="$PREFIX/bin:$PATH"
 export LD_LIBRARY_PATH="$PREFIX/lib:$PREFIX/lib/mutter-16:$PREFIX/lib/gnome-shell${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 export GI_TYPELIB_PATH="$PREFIX/lib/mutter-16:$PREFIX/lib/gnome-shell${GI_TYPELIB_PATH:+:$GI_TYPELIB_PATH}"
-export GSETTINGS_SCHEMA_DIR="$PREFIX/share/glib-2.0/schemas"
+export GSETTINGS_SCHEMA_DIR="$PREFIX/share/glib-2.0/schemas${GSETTINGS_SCHEMA_DIR:+:$GSETTINGS_SCHEMA_DIR}"
 export XDG_DATA_DIRS="$PREFIX/share:${XDG_DATA_DIRS:-/usr/share:/usr/local/share}"
 export MUTTER_PLUGIN_DIR="$PREFIX/lib/mutter-16/plugins"
 export XDG_CURRENT_DESKTOP="${XDG_CURRENT_DESKTOP:-GNOME}"

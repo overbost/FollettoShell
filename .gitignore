@@ -1,0 +1,8 @@
+/dist/
+*.deb
+*.build
+*.changes
+*.dsc
+/debian/files
+/debian/.debhelper/
+/debian/folletto-shell/

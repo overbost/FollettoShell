@@ -1,6 +1,6 @@
 [Desktop Entry]
 Name=Folletto
-Comment=GNOME Folletto con tiling i3, sessione Wayland
+Comment=GNOME Folletto con tiling i3 (Wayland)
 Exec=folletto-session
 TryExec=folletto-session
 Type=Application

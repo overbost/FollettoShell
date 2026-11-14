@@ -1,0 +1,19 @@
+#!/bin/sh
+# Avvia il pannello Impostazioni Folletto con gli schemi del package.
+set -eu
+PREFIX="${FOLLETTO_PREFIX:-/opt/folletto}"
+APP="$PREFIX/libexec/folletto-settings"
+if [ ! -x "$APP" ]; then
+  APP="$PREFIX/bin/folletto-settings"
+fi
+if [ ! -x "$APP" ]; then
+  echo "folletto-settings non trovato in $PREFIX." >&2
+  exit 1
+fi
+# Preferisci lo schema di sistema (installato dal .deb); fallback al prefix.
+if [ ! -f /usr/share/glib-2.0/schemas/org.folletto.wm.gschema.xml ] && \
+   [ -d "$PREFIX/share/glib-2.0/schemas" ]; then
+  export GSETTINGS_SCHEMA_DIR="$PREFIX/share/glib-2.0/schemas${GSETTINGS_SCHEMA_DIR:+:$GSETTINGS_SCHEMA_DIR}"
+fi
+export XDG_DATA_DIRS="$PREFIX/share:${XDG_DATA_DIRS:-/usr/share:/usr/local/share}"
+exec "$APP" "$@"

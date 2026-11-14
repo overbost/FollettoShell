@@ -1,0 +1,20 @@
+Package: folletto-shell
+Version: @VERSION@
+Section: gnome
+Priority: optional
+Architecture: @ARCH@
+Maintainer: FollettoShell maintainers <folletto@localhost>
+Installed-Size: @SIZE@
+Depends: gnome-session, python3, python3-gi, gir1.2-gtk-4.0, gir1.2-adw-1, libglib2.0-bin, glib-networking
+Recommends: gdm3, gnome-control-center, gnome-settings-daemon
+Suggests: gnome-shell, mutter
+Description: GNOME Shell Folletto with native i3-style tiling
+ Folletto is a Mutter + GNOME Shell build with an i3-like tiling window
+ manager that can be toggled alongside normal GNOME behaviour.
+ .
+ This package installs the runtime under /opt/folletto (it does not replace
+ Debian/Ubuntu mutter or gnome-shell packages) and registers login sessions:
+  - Folletto (Wayland)
+  - Folletto on Xorg (X11)
+ .
+ Includes the Folletto settings panel and default keybindings.

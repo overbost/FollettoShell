@@ -5,7 +5,8 @@ integrato nel compositor. Due modalità commutabili **senza uscire dalla session
 **normal** (GNOME come sempre) e **i3** (tiling).
 
 I pacchetti Debian `mutter` / `gnome-shell` non vengono sostituiti: la build
-vive in un prefix isolato (`/var/tmp/folletto/prefix` di default).
+vive in un prefix isolato (`/var/tmp/folletto/prefix` in sviluppo,
+`/opt/folletto` nel pacchetto `.deb`).
 
 ## Funzionalità principali
 
@@ -33,6 +34,31 @@ Toggle modalità: `Super+Shift+t`, oppure Quick Settings «i3 layout» in GNOME 
 ./scripts/run-nested.sh
 ```
 
+## Pacchetto `.deb`
+
+Dopo aver compilato il prefix (Mutter + GNOME Shell Folletto):
+
+```sh
+./scripts/build-deb.sh
+sudo apt install ./dist/folletto-shell_*.deb
+```
+
+Il pacchetto `folletto-shell` installa:
+
+- runtime in `/opt/folletto` (binari, librerie, schemi)
+- wrapper `/usr/bin/folletto-session` e `/usr/bin/folletto-session-x11`
+- voci di login **Folletto** (Wayland) e **Folletto on Xorg** (X11)
+- sessione GNOME `folletto`, pannello Impostazioni e keybinding
+
+Al login (GDM) scegli **Folletto** o **Folletto on Xorg**. La sessione GNOME
+di sistema resta disponibile come prima.
+
+Smoke-test del solo packaging (senza compilare Mutter):
+
+```sh
+FOLLETTO_STUB=1 ./scripts/build-deb.sh
+```
+
 ## Comandi i3 (C, in Mutter)
 
 `Meta.Display.i3_command()` accetta la sintassi i3:
@@ -54,6 +80,7 @@ I keybind di default (solo in modalità i3, eccetto il toggle) seguono i3 con Su
 
 ## Sicurezza host
 
-- Build e install solo nel prefix isolato (default: `/var/tmp/folletto/prefix`)
-- Sorgenti sotto `/var/tmp/folletto/src/{mutter,gnome-shell}`
-- Mai `meson install` in `/usr`
+- Build di sviluppo nel prefix isolato (default: `/var/tmp/folletto/prefix`)
+- Pacchetto `.deb` in `/opt/folletto` + sessioni in `/usr/share/...`
+- Sorgenti tipicamente sotto `/var/tmp/folletto/src/{mutter,gnome-shell}`
+- Mai `meson install` in `/usr` e nessun replace dei pacchetti `mutter` / `gnome-shell`
