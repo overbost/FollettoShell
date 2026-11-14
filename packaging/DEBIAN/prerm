@@ -1,0 +1,4 @@
+#!/bin/sh
+set -e
+# Placeholder for future cleanup before remove/upgrade.
+exit 0

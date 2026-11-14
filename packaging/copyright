@@ -1,0 +1,26 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: FollettoShell
+Source: https://github.com/overbost/FollettoShell
+
+Files: *
+Copyright: FollettoShell contributors
+License: GPL-2.0-or-later
+
+Files: overlay/mutter/*
+Copyright: FollettoShell contributors
+Comment: Built on top of Mutter (GPL-2.0-or-later)
+License: GPL-2.0-or-later
+
+Files: overlay/gnome-shell/*
+Copyright: FollettoShell contributors
+Comment: Built on top of GNOME Shell (GPL-2.0-or-later)
+License: GPL-2.0-or-later
+
+License: GPL-2.0-or-later
+ This program is free software; you can redistribute it and/or modify
+ it under the terms of the GNU General Public License as published by
+ the Free Software Foundation; either version 2 of the License, or
+ (at your option) any later version.
+ .
+ On Debian systems, the full text of the GNU General Public License
+ version 2 can be found in /usr/share/common-licenses/GPL-2.

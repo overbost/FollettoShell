@@ -1,8 +1,9 @@
 # Ambiente e helper condivisi. Sourciare, non eseguire.
 # ROOT/prefix isolati: non toccano i pacchetti GNOME Debian.
+# Installazione da .deb: FOLLETTO_PREFIX=/opt/folletto
 
 ROOT=/var/tmp/folletto
-PREFIX=$ROOT/prefix
+PREFIX="${FOLLETTO_PREFIX:-$ROOT/prefix}"
 FOLLETTO_WAYLAND_SOCKET="${FOLLETTO_WAYLAND_SOCKET:-wayland-folletto}"
 FOLLETTO_NESTED_SIZE="${MUTTER_DEBUG_DUMMY_MODE_SPECS:-1600x900@60}"
 FOLLETTO_X11_SIZE="${FOLLETTO_X11_SIZE:-1600x900}"

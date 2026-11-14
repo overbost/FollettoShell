@@ -1,11 +1,25 @@
 # Folletto
 
-Fork di Mutter 48.7 + GNOME Shell 48.7 (Debian 13) con tiling i3 nativo
-e due modalità commutabili in sessione: **normal** (GNOME 48) e **i3**.
+Fork di Mutter 48.7 + GNOME Shell 48.7 (Debian 13) con tiling in stile i3
+integrato nel compositor. Due modalità commutabili **senza uscire dalla sessione**:
+**normal** (GNOME come sempre) e **i3** (tiling).
 
-I sorgenti e la build stanno in `/var/tmp/folletto` (disco di root, 114 GB liberi).
-La home è piena: non si clona Mutter lì. I pacchetti Debian `mutter` / `gnome-shell`
-non vengono sostituiti.
+I pacchetti Debian `mutter` / `gnome-shell` non vengono sostituiti: la build
+vive in un prefix isolato (`/var/tmp/folletto/prefix` in sviluppo,
+`/opt/folletto` nel pacchetto `.deb`).
+
+## Funzionalità principali
+
+- **GNOME invariato** — in modalità `normal` puoi usare GNOME come prima (finestre flottanti, overview, gesti).
+- **Tiling** — in modalità i3 le nuove finestre si affiancano automaticamente (split orizzontale o verticale).
+- **Griglia** — durante il drag delle finestre compare una griglia di celle dove rilasciare e affiancare.
+- **Tabbed** — layout a schede: i titoli delle finestre in una riga, focus evidenziato.
+- **Stacked** — layout impilato: i titoli uno sotto l’altro, sotto resta il contenuto della finestra attiva.
+- **Gaps** — spaziatura interna (tra le celle) ed esterna (intorno al workspace), regolabile.
+- **Personalizzazione** — modalità, layout predefinito, cornici e gaps dal pannello **Folletto** (Adwaita) o da GSettings (`org.folletto.wm`).
+- **Keybinding** — scorciatoie in stile i3 (Super + …), modificabili da Impostazioni → Tastiera o dallo schema Folletto.
+
+Toggle modalità: `Super+Shift+t`, oppure Quick Settings «i3 layout» in GNOME Shell Folletto.
 
 ## Build (isolata, niente `/usr`)
 
@@ -13,14 +27,37 @@ non vengono sostituiti.
 # 1. dipendenze di compilazione (chiede sudo; NON sostituisce GNOME)
 ./scripts/install-build-deps.sh
 
-# 2. meson/ninja in prefix /var/tmp/folletto/prefix
+# 2. meson/ninja nel prefix isolato
 ./scripts/build.sh
 
 # 3. prova nested (finestra, non sostituisce la sessione)
 ./scripts/run-nested.sh
 ```
 
-Toggle in nested mutter: `Super+Shift+t`. In GNOME Shell Folletto: Quick Settings «i3 layout».
+## Pacchetto `.deb`
+
+Dopo aver compilato il prefix (Mutter + GNOME Shell Folletto):
+
+```sh
+./scripts/build-deb.sh
+sudo apt install ./dist/folletto-shell_*.deb
+```
+
+Il pacchetto `folletto-shell` installa:
+
+- runtime in `/opt/folletto` (binari, librerie, schemi)
+- wrapper `/usr/bin/folletto-session` e `/usr/bin/folletto-session-x11`
+- voci di login **Folletto** (Wayland) e **Folletto on Xorg** (X11)
+- sessione GNOME `folletto`, pannello Impostazioni e keybinding
+
+Al login (GDM) scegli **Folletto** o **Folletto on Xorg**. La sessione GNOME
+di sistema resta disponibile come prima.
+
+Smoke-test del solo packaging (senza compilare Mutter):
+
+```sh
+FOLLETTO_STUB=1 ./scripts/build-deb.sh
+```
 
 ## Comandi i3 (C, in Mutter)
 
@@ -40,10 +77,11 @@ Toggle in nested mutter: `Super+Shift+t`. In GNOME Shell Folletto: Quick Setting
 - `mode resize|default`
 - `toggle_mode`
 
-Keybind di default (solo in modalità i3, eccetto toggle): come i3 con Super.
+I keybind di default (solo in modalità i3, eccetto il toggle) seguono i3 con Super.
 
 ## Sicurezza host
 
-- prefix: `/var/tmp/folletto/prefix`
-- sorgenti: `/var/tmp/folletto/src/{mutter,gnome-shell}`
-- mai `meson install` in `/usr`
+- Build di sviluppo nel prefix isolato (default: `/var/tmp/folletto/prefix`)
+- Pacchetto `.deb` in `/opt/folletto` + sessioni in `/usr/share/...`
+- Sorgenti tipicamente sotto `/var/tmp/folletto/src/{mutter,gnome-shell}`
+- Mai `meson install` in `/usr` e nessun replace dei pacchetti `mutter` / `gnome-shell`
