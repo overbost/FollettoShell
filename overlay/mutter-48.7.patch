@@ -1,0 +1,360 @@
+diff --git a/data/meson.build b/data/meson.build
+index 12c4428..d42d03d 100644
+--- a/data/meson.build
++++ b/data/meson.build
+@@ -7,6 +7,7 @@ keybinding_xml_files = [
+   '50-mutter-navigation.xml',
+   '50-mutter-system.xml',
+   '50-mutter-windows.xml',
++  '50-folletto.xml',
+ ]
+ 
+ if have_wayland
+@@ -54,6 +55,10 @@ locally_compiled_schemas_dep = declare_dependency(
+   sources: locally_compiled_schemas
+ )
+ 
++install_data(['org.folletto.wm.gschema.xml'],
++  install_dir: schemadir,
++)
++
+ install_data(['mutter-schemas.convert'],
+   install_dir: datadir / 'GConf/gsettings',
+ )
+diff --git a/src/compositor/meta-window-drag.c b/src/compositor/meta-window-drag.c
+index f27d5d3..b92e677 100644
+--- a/src/compositor/meta-window-drag.c
++++ b/src/compositor/meta-window-drag.c
+@@ -24,6 +24,7 @@
+ #include "compositor/compositor-private.h"
+ #include "compositor/edge-resistance.h"
+ #include "core/window-private.h"
++#include "meta/display.h"
+ #include "meta/meta-enum-types.h"
+ 
+ #ifdef HAVE_X11_CLIENT
+@@ -1142,6 +1143,16 @@ update_move_maybe_tile (MetaWindowDrag *window_drag,
+   MetaLogicalMonitor *logical_monitor;
+   MtkRectangle work_area;
+ 
++  /* Folletto i3 mode places windows itself. Mutter edge-tiling would
++   * fight the tree, including after the pointer is released. */
++  if (meta_display_get_wm_mode (display) == META_WM_MODE_I3)
++    {
++      if (window_drag->preview_tile_mode != META_TILE_NONE)
++        hide_tile_preview (window_drag);
++      window_drag->preview_tile_mode = META_TILE_NONE;
++      return;
++    }
++
+   /* For side-by-side tiling we are interested in the inside vertical
+    * edges of the work area of the monitor where the pointer is located,
+    * and in the outside top edge for maximized tiling.
+diff --git a/src/core/constraints.c b/src/core/constraints.c
+index 09c14c9..7e0bde0 100644
+--- a/src/core/constraints.c
++++ b/src/core/constraints.c
+@@ -314,6 +314,16 @@ meta_window_constrain (MetaWindow          *window,
+               orig->x, orig->y, orig->width, orig->height,
+               new->x,  new->y,  new->width,  new->height);
+ 
++  /* Folletto already chose this rect. Mutter's placement and edge
++   * constraints would fight the tiling tree. */
++  if (window->layout_owned)
++    {
++      *temporary = *new;
++      *rel_x = 0;
++      *rel_y = 0;
++      return;
++    }
++
+   setup_constraint_info (backend,
+                          &info,
+                          window,
+diff --git a/src/core/display-private.h b/src/core/display-private.h
+index 17f81d9..1410506 100644
+--- a/src/core/display-private.h
++++ b/src/core/display-private.h
+@@ -167,6 +167,9 @@ struct _MetaDisplay
+   gchar *saved_clipboard_mimetype;
+   MetaSelection *selection;
+   GCancellable *saved_clipboard_cancellable;
++
++  /* Folletto tiling engine (opaque, see folletto-wm.c). */
++  struct _FollettoWm *folletto_wm;
+ };
+ 
+ struct _MetaDisplayClass
+diff --git a/src/core/display.c b/src/core/display.c
+index c2600ec..0345591 100644
+--- a/src/core/display.c
++++ b/src/core/display.c
+@@ -47,6 +47,7 @@
+ #include "core/boxes-private.h"
+ #include "core/display-private.h"
+ #include "core/events.h"
++#include "core/folletto-wm.h"
+ #include "core/keybindings-private.h"
+ #include "core/meta-clipboard-manager.h"
+ #include "core/meta-workspace-manager-private.h"
+@@ -183,6 +184,8 @@ enum
+   CLOSING,
+   INIT_XSERVER,
+   WINDOW_VISIBILITY_UPDATED,
++  WM_MODE_CHANGED,
++  I3_LAYOUT_CHANGED,
+   LAST_SIGNAL
+ };
+ 
+@@ -410,6 +413,24 @@ meta_display_class_init (MetaDisplayClass *klass)
+                   META_TYPE_WINDOW,
+                   META_TYPE_GRAB_OP);
+ 
++  display_signals[WM_MODE_CHANGED] =
++    g_signal_new ("wm-mode-changed",
++                  G_TYPE_FROM_CLASS (klass),
++                  G_SIGNAL_RUN_LAST,
++                  0,
++                  NULL, NULL, NULL,
++                  G_TYPE_NONE, 1,
++                  META_TYPE_WM_MODE);
++
++  display_signals[I3_LAYOUT_CHANGED] =
++    g_signal_new ("i3-layout-changed",
++                  G_TYPE_FROM_CLASS (klass),
++                  G_SIGNAL_RUN_LAST,
++                  0,
++                  NULL, NULL, NULL,
++                  G_TYPE_NONE, 1,
++                  G_TYPE_STRING);
++
+   /**
+    * MetaDisplay::show-restart-message:
+    * @display: the #MetaDisplay instance
+@@ -956,6 +977,7 @@ meta_display_new (MetaContext  *context,
+ 
+   display->closing = 0;
+   display->display_opening = TRUE;
++  display->folletto_wm = NULL;
+ 
+   display->pending_pings = NULL;
+   display->autoraise_timeout_id = 0;
+@@ -1090,6 +1112,8 @@ meta_display_new (MetaContext  *context,
+ 
+   display->sound_player = g_object_new (META_TYPE_SOUND_PLAYER, NULL);
+ 
++  display->folletto_wm = folletto_wm_new (display);
++
+   /* Done opening new display */
+   display->display_opening = FALSE;
+ 
+@@ -1220,6 +1244,12 @@ meta_display_close (MetaDisplay *display,
+ 
+   display->closing += 1;
+ 
++  if (display->folletto_wm)
++    {
++      folletto_wm_free (display->folletto_wm);
++      display->folletto_wm = NULL;
++    }
++
+   g_signal_emit (display, display_signals[CLOSING], 0);
+ 
+   meta_display_unmanage_windows (display, timestamp);
+diff --git a/src/core/meta-launch-context.c b/src/core/meta-launch-context.c
+index 998febe..48ed610 100644
+--- a/src/core/meta-launch-context.c
++++ b/src/core/meta-launch-context.c
+@@ -22,7 +22,17 @@
+ #include <gio/gdesktopappinfo.h>
+ 
+ #include "core/display-private.h"
++#include "meta/meta-backend.h"
+ #include "meta/meta-launch-context.h"
++#include "meta/util.h"
++
++#ifdef HAVE_WAYLAND
++#include "meta/meta-wayland-compositor.h"
++#include "wayland/meta-wayland.h"
++#endif
++#ifdef HAVE_X11
++#include "backends/x11/nested/meta-backend-x11-nested.h"
++#endif
+ 
+ #ifdef HAVE_X11_CLIENT
+ #include "x11/meta-startup-notification-x11.h"
+@@ -109,6 +119,32 @@ meta_launch_context_constructed (GObject *object)
+ 
+   G_OBJECT_CLASS (meta_launch_context_parent_class)->constructed (object);
+ 
++#if defined(HAVE_WAYLAND) && defined(HAVE_X11)
++  if (context->display && meta_is_wayland_compositor ())
++    {
++      MetaContext *meta_context = meta_display_get_context (context->display);
++      MetaBackend *backend = meta_context_get_backend (meta_context);
++
++      if (META_IS_BACKEND_X11_NESTED (backend))
++        {
++          MetaWaylandCompositor *compositor =
++            meta_context_get_wayland_compositor (meta_context);
++          const char *nested_wl =
++            meta_wayland_get_wayland_display_name (compositor);
++          const char *nested_x11 =
++            meta_wayland_get_public_xwayland_display_name (compositor);
++
++          if (nested_wl)
++            g_app_launch_context_setenv (G_APP_LAUNCH_CONTEXT (context),
++                                         "WAYLAND_DISPLAY", nested_wl);
++          if (nested_x11)
++            g_app_launch_context_setenv (G_APP_LAUNCH_CONTEXT (context),
++                                         "DISPLAY", nested_x11);
++          return;
++        }
++    }
++#endif
++
+   x11_display = getenv ("DISPLAY");
+   wayland_display = getenv ("WAYLAND_DISPLAY");
+ 
+diff --git a/src/core/window-private.h b/src/core/window-private.h
+index 6f07ad1..6e19572 100644
+--- a/src/core/window-private.h
++++ b/src/core/window-private.h
+@@ -518,6 +518,11 @@ struct _MetaWindow
+   /* TRUE if window appears focused at the moment */
+   guint appears_focused : 1;
+ 
++  /* Folletto: tiling tree owns the frame rect, so constraints must not move it. */
++  guint layout_owned : 1;
++  /* Folletto: tiled windows drop decorations when show-decorations is false. */
++  guint hide_decorations : 1;
++
+   /* Have we placed this window? */
+   guint placed : 1;
+ 
+diff --git a/src/core/window.c b/src/core/window.c
+index 47f64ec..78b26db 100644
+--- a/src/core/window.c
++++ b/src/core/window.c
+@@ -5865,6 +5865,9 @@ meta_window_recalc_features (MetaWindow *window)
+               window->size_hints.max_width,
+               window->size_hints.max_height);
+ 
++  if (window->hide_decorations)
++    window->decorated = FALSE;
++
+   meta_window_recalc_skip_features (window);
+ 
+   /* To prevent users from losing windows, let's prevent users from
+diff --git a/src/meson.build b/src/meson.build
+index b0c103b..b990e0e 100644
+--- a/src/meson.build
++++ b/src/meson.build
+@@ -341,6 +341,8 @@ mutter_sources = [
+   'core/delete.c',
+   'core/display.c',
+   'core/display-private.h',
++  'core/folletto-wm.c',
++  'core/folletto-wm.h',
+   'core/events.c',
+   'core/events.h',
+   'core/keybindings.c',
+diff --git a/src/meta/display.h b/src/meta/display.h
+index 460a62e..ff4e919 100644
+--- a/src/meta/display.h
++++ b/src/meta/display.h
+@@ -284,3 +284,34 @@ void meta_display_set_input_focus   (MetaDisplay *display,
+ META_EXPORT
+ void meta_display_unset_input_focus (MetaDisplay *display,
+                                      guint32      timestamp);
++
++/**
++ * MetaWmMode:
++ * @META_WM_MODE_NORMAL: comportamento GNOME
++ * @META_WM_MODE_I3: tiling in stile i3
++ */
++typedef enum
++{
++  META_WM_MODE_NORMAL,
++  META_WM_MODE_I3
++} MetaWmMode;
++
++META_EXPORT
++void meta_display_set_wm_mode (MetaDisplay *display,
++                               MetaWmMode   mode);
++
++META_EXPORT
++MetaWmMode meta_display_get_wm_mode (MetaDisplay *display);
++
++META_EXPORT
++gboolean meta_display_i3_command (MetaDisplay *display,
++                                  const char  *command);
++
++META_EXPORT
++const char * meta_display_get_i3_layout (MetaDisplay *display);
++
++META_EXPORT
++GVariant * meta_display_get_i3_tiles (MetaDisplay *display);
++
++META_EXPORT
++GVariant * meta_display_get_i3_chrome (MetaDisplay *display);
+diff --git a/src/wayland/meta-wayland.c b/src/wayland/meta-wayland.c
+index b2df073..84b35c6 100644
+--- a/src/wayland/meta-wayland.c
++++ b/src/wayland/meta-wayland.c
+@@ -66,6 +66,7 @@
+ #include "wayland/meta-wayland-xdg-session-manager.h"
+ 
+ #ifdef HAVE_XWAYLAND
++#include "backends/x11/nested/meta-backend-x11-nested.h"
+ #include "wayland/meta-wayland-x11-interop.h"
+ #include "wayland/meta-xwayland-grab-keyboard.h"
+ #include "wayland/meta-xwayland-private.h"
+@@ -1059,22 +1060,36 @@ meta_wayland_compositor_new (MetaContext *context)
+   g_message ("Using Wayland display name '%s'", compositor->display_name);
+ 
+ #ifdef HAVE_XWAYLAND
+-  if (x11_display_policy != META_X11_DISPLAY_POLICY_DISABLED)
++  /* Nested Folletto draws on the host X display. set_gnome_env() calls
++   * setenv(), which would retarget this process at the inner Xwayland
++   * and at wayland-folletto. Keep the host display on the process;
++   * launch contexts publish the nested sockets to clients. */
++  if (META_IS_BACKEND_X11_NESTED (backend))
++    {
++      if (x11_display_policy != META_X11_DISPLAY_POLICY_DISABLED)
++        meta_xwayland_set_should_enable_ei_portal (&compositor->xwayland_manager, TRUE);
++    }
++  else
+     {
+-      gboolean status = TRUE;
++      if (x11_display_policy != META_X11_DISPLAY_POLICY_DISABLED)
++        {
++          gboolean status = TRUE;
+ 
+-      status &=
+-        set_gnome_env ("GNOME_SETUP_DISPLAY", compositor->xwayland_manager.private_connection.name);
+-      status &=
+-        set_gnome_env ("DISPLAY", compositor->xwayland_manager.public_connection.name);
+-      status &=
+-        set_gnome_env ("XAUTHORITY", compositor->xwayland_manager.auth_file);
++          status &=
++            set_gnome_env ("GNOME_SETUP_DISPLAY", compositor->xwayland_manager.private_connection.name);
++          status &=
++            set_gnome_env ("DISPLAY", compositor->xwayland_manager.public_connection.name);
++          status &=
++            set_gnome_env ("XAUTHORITY", compositor->xwayland_manager.auth_file);
+ 
+-      meta_xwayland_set_should_enable_ei_portal (&compositor->xwayland_manager, status);
+-    }
+-#endif
++          meta_xwayland_set_should_enable_ei_portal (&compositor->xwayland_manager, status);
++        }
+ 
++      set_gnome_env ("WAYLAND_DISPLAY", meta_wayland_get_wayland_display_name (compositor));
++    }
++#else
+   set_gnome_env ("WAYLAND_DISPLAY", meta_wayland_get_wayland_display_name (compositor));
++#endif
+ 
+   return compositor;
+ }

@@ -2,6 +2,9 @@
 # Mutter Folletto nested, senza GNOME Shell. Non tocca la sessione Debian.
 set -eu
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
+if [ -z "${FOLLETTO_IN_CHROOT:-}" ] && [ -x /var/tmp/folletto/debian/usr/bin/meson ]; then
+  exec "$SCRIPT_DIR/with-debian.sh" "$SCRIPT_DIR/run-nested.sh" "$@"
+fi
 # shellcheck source=folletto-common.sh
 . "$SCRIPT_DIR/folletto-common.sh"
 
