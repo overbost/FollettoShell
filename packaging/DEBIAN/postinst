@@ -10,8 +10,27 @@ compile_schemas() {
   fi
 }
 
+# Binari compilati con prefix /var/tmp/folletto/prefix (MUTTER_LIBEXECDIR, locale, …).
+# Su macchine senza quel path symlink → /opt/folletto.
+folletto_compat_dev_prefix_link() {
+  dev_parent=/var/tmp/folletto
+  dev_link=$dev_parent/prefix
+  case "$dev_link" in
+    ""|/|/opt/*) return 0 ;;
+  esac
+  if [ ! -d "$FOLLETTO_PREFIX" ]; then
+    return 0
+  fi
+  if [ -e "$dev_link" ] && [ ! -L "$dev_link" ]; then
+    return 0
+  fi
+  mkdir -p "$dev_parent"
+  ln -sfn "$FOLLETTO_PREFIX" "$dev_link"
+}
+
 case "$1" in
   configure)
+    folletto_compat_dev_prefix_link
     compile_schemas "$FOLLETTO_PREFIX/share/glib-2.0/schemas"
     compile_schemas /usr/share/glib-2.0/schemas
     if command -v update-desktop-database >/dev/null 2>&1; then
@@ -31,8 +50,11 @@ case "$1" in
     fi
     cat >&2 <<'EOF'
 Folletto: sessioni «Folletto» / «Folletto on Xorg» registrate.
-Se GDM si era bloccato con un pacchetto precedente, riavvia gdm3 (o il PC)
-e controlla i log in ~/.local/state/folletto/ in caso di schermo nero.
+Se il login GDM non accetta più la password dopo un tentativo Folletto fallito,
+da tty: sudo systemctl restart gdm.service
+Log sessione: ~/.local/state/folletto/
+Sul .deb, Mutter può aspettarsi /var/tmp/folletto/prefix/libexec:
+creato symlink compat → /opt/folletto (salvo override manuale).
 EOF
     ;;
 esac

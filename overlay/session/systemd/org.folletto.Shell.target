@@ -1,0 +1,9 @@
+[Unit]
+Description=Folletto Shell
+DefaultDependencies=no
+
+Requisite=gnome-session-initialized.target
+PartOf=gnome-session-initialized.target
+Before=gnome-session-initialized.target
+
+Wants=org.folletto.Shell@wayland.service org.folletto.Shell@x11.service

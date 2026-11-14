@@ -42,10 +42,17 @@ Toggle modalità: `Super+Shift+t`, oppure Quick Settings «i3 layout» in GNOME 
 
 Dopo aver compilato il prefix (Mutter + GNOME Shell Folletto):
 
+Per il `.deb`, compila con **prefix installazione** `/opt/folletto` (path in libmutter, es. `mutter-x11-frames`):
+
 ```sh
-./scripts/build-deb.sh
+./scripts/build-for-deb.sh
+FOLLETTO_PREFIX=/var/tmp/folletto/prefix-deb/opt/folletto ./scripts/build-deb.sh
 sudo apt install ./dist/folletto-shell_*.deb
 ```
+
+Sviluppo nested resta su `/var/tmp/folletto/prefix` con `./scripts/build.sh`.
+Il pacchetto crea anche un symlink `/var/tmp/folletto/prefix` → `/opt/folletto` se i binari
+sono ancora del prefix dev.
 
 Il pacchetto `folletto-shell` installa:
 
@@ -56,11 +63,12 @@ Il pacchetto `folletto-shell` installa:
 - sessione GNOME `folletto` (`org.folletto.Shell` + GSD), pannello Impostazioni e keybinding
 
 Al login (GDM) scegli **Folletto** o **Folletto on Xorg**. La sessione usa
-`gnome-session --builtin` così non parte lo `gnome-shell` di sistema; le
-librerie Folletto restano isolate nel wrapper shell (evita freeze GDM /
-schermo nero). La sessione GNOME di sistema resta disponibile come prima.
+`gnome-session --session=folletto` con unit systemd `org.folletto.Shell`;
+le librerie Folletto restano solo in `folletto-gnome-shell`. La sessione GNOME
+di sistema non viene modificata.
 
-Se la sessione non parte: log in `~/.local/state/folletto/`.
+Se il login fallisce o GDM resta bloccato dopo un tentativo Folletto:
+`sudo systemctl restart gdm.service` da tty. Log in `~/.local/state/folletto/`.
 
 Al **primo** avvio di una sessione Folletto le estensioni GNOME utente vengono
 disabilitate (`disable-user-extensions`) per evitare conflitti con il tiling.
@@ -91,7 +99,17 @@ FOLLETTO_STUB=1 ./scripts/build-deb.sh
 - `mode resize|default`
 - `toggle_mode`
 
-I keybind di default (solo in modalità i3, eccetto il toggle) seguono i3 con Super.
+I keybind di default (modalità **i3**, toggle con **Super+Shift+t** per tornare a GNOME
+normale) usano **Super** come in i3 (`h/j/k/l`, layout, workspace, ecc.).
+
+Se le scorciatoie non rispondono, dalla sessione Folletto:
+
+```sh
+gsettings list-schemas | grep folletto
+sudo glib-compile-schemas /opt/folletto/share/glib-2.0/schemas
+sudo glib-compile-schemas /usr/share/glib-2.0/schemas
+gsettings get org.folletto.wm mode   # dovrebbe essere i3
+```
 
 ## Sicurezza host
 

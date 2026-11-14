@@ -12,8 +12,8 @@ folletto_export_prefix() {
   export PATH="$PREFIX/bin:$PATH"
   export LD_LIBRARY_PATH="$PREFIX/lib:$PREFIX/lib/mutter-16:$PREFIX/lib/gnome-shell${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
   export GI_TYPELIB_PATH="$PREFIX/lib/mutter-16:$PREFIX/lib/gnome-shell${GI_TYPELIB_PATH:+:$GI_TYPELIB_PATH}"
-  export GSETTINGS_SCHEMA_DIR="$PREFIX/share/glib-2.0/schemas"
-  export XDG_DATA_DIRS="$PREFIX/share:${XDG_DATA_DIRS:-/usr/share:/usr/local/share}"
+  export GSETTINGS_SCHEMA_DIR="$PREFIX/share/glib-2.0/schemas:/usr/share/glib-2.0/schemas"
+  export XDG_DATA_DIRS="/usr/share:/usr/local/share:$PREFIX/share:${XDG_DATA_DIRS:-}"
   export MUTTER_PLUGIN_DIR="$PREFIX/lib/mutter-16/plugins"
   export GIO_USE_VFS=local
   export XDG_CURRENT_DESKTOP="${XDG_CURRENT_DESKTOP:-GNOME}"
@@ -23,6 +23,19 @@ folletto_require_prefix() {
   if [ ! -x "$PREFIX/bin/gnome-shell" ]; then
     echo "Compila prima Mutter+Shell nel prefix (/var/tmp/folletto)." >&2
     exit 1
+  fi
+}
+
+# Nested/X11 dev: schema Folletto + niente estensioni utente (dash-to-dock, ecc.).
+folletto_prep_dev_session() {
+  if [ -d "$PREFIX/share/glib-2.0/schemas" ] && command -v glib-compile-schemas >/dev/null 2>&1; then
+    if [ ! -f "$PREFIX/share/glib-2.0/schemas/gschemas.compiled" ]; then
+      glib-compile-schemas "$PREFIX/share/glib-2.0/schemas" 2>/dev/null || true
+    fi
+  fi
+  if command -v gsettings >/dev/null 2>&1; then
+    gsettings set org.gnome.shell disable-user-extensions true 2>/dev/null || true
+    gsettings set org.folletto.wm mode i3 2>/dev/null || true
   fi
 }
 

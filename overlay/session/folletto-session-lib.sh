@@ -16,11 +16,12 @@ folletto_setup_prefix() {
   # Le lib Folletto restano nel wrapper folletto-gnome-shell, altrimenti
   # gnome-settings-daemon e GDM vedono librerie incompatibili → nero / freeze.
   export PATH="$PREFIX/bin:/usr/bin:${PATH:-/usr/bin}"
-  export XDG_DATA_DIRS="$PREFIX/share:/usr/share:/usr/local/share${XDG_DATA_DIRS:+:$XDG_DATA_DIRS}"
+  # Prefix in coda: non ombreggiare org.gnome.* in /usr/share/applications.
+  export XDG_DATA_DIRS="/usr/share:/usr/local/share${XDG_DATA_DIRS:+:$XDG_DATA_DIRS}:$PREFIX/share"
   export XDG_CURRENT_DESKTOP="${XDG_CURRENT_DESKTOP:-GNOME}"
   # Schema Folletto anche per gsettings della sessione (senza forzare tutto il prefix)
   if [ -d "$PREFIX/share/glib-2.0/schemas" ]; then
-    export GSETTINGS_SCHEMA_DIR="$PREFIX/share/glib-2.0/schemas${GSETTINGS_SCHEMA_DIR:+:$GSETTINGS_SCHEMA_DIR}"
+    export GSETTINGS_SCHEMA_DIR="$PREFIX/share/glib-2.0/schemas:/usr/share/glib-2.0/schemas${GSETTINGS_SCHEMA_DIR:+:$GSETTINGS_SCHEMA_DIR}"
   fi
 
   log_dir="${XDG_STATE_HOME:-$HOME/.local/state}/folletto"
@@ -44,8 +45,20 @@ folletto_disable_extensions_on_first_run() {
     return 0
   fi
   mkdir -p "$config_dir"
-  if command -v gsettings >/dev/null 2>&1; then
-    gsettings set org.gnome.shell disable-user-extensions true 2>/dev/null || true
+  if command -v gsettings >/dev/null 2>&1 && [ -n "${DBUS_SESSION_BUS_ADDRESS:-}" ]; then
+    timeout 3 gsettings set org.gnome.shell disable-user-extensions true 2>/dev/null || true
   fi
   touch "$marker"
+}
+
+# Se lo schema Folletto non è visibile, Mutter non registra alcun keybinding.
+folletto_warn_schema_missing() {
+  if ! command -v gsettings >/dev/null 2>&1; then
+    return 0
+  fi
+  if ! gsettings list-schemas 2>/dev/null | grep -qx 'org.folletto.wm'; then
+    echo "ATTENZIONE: schema org.folletto.wm non trovato." \
+      "Esegui: sudo glib-compile-schemas /opt/folletto/share/glib-2.0/schemas" \
+      "e /usr/share/glib-2.0/schemas" >&2
+  fi
 }

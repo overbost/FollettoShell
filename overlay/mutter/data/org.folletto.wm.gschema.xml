@@ -2,7 +2,7 @@
 <schemalist>
   <schema id="org.folletto.wm" path="/org/folletto/wm/">
     <key name="mode" type="s">
-      <default>'normal'</default>
+      <default>'i3'</default>
       <summary>Window manager mode</summary>
       <description>normal = GNOME 48 behaviour; i3 = tiling by default</description>
     </key>

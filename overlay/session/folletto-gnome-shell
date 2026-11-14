@@ -13,21 +13,25 @@ fi
 export PATH="$PREFIX/bin:${PATH:-/usr/bin}"
 export LD_LIBRARY_PATH="$PREFIX/lib:$PREFIX/lib/mutter-16:$PREFIX/lib/gnome-shell${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 export GI_TYPELIB_PATH="$PREFIX/lib/mutter-16:$PREFIX/lib/gnome-shell${GI_TYPELIB_PATH:+:$GI_TYPELIB_PATH}"
-export GSETTINGS_SCHEMA_DIR="$PREFIX/share/glib-2.0/schemas${GSETTINGS_SCHEMA_DIR:+:$GSETTINGS_SCHEMA_DIR}"
-export XDG_DATA_DIRS="$PREFIX/share:${XDG_DATA_DIRS:-/usr/share:/usr/local/share}"
+# org.folletto.wm: prefix + sistema (serve gschemas.compiled in entrambi se possibile).
+export GSETTINGS_SCHEMA_DIR="$PREFIX/share/glib-2.0/schemas:/usr/share/glib-2.0/schemas${GSETTINGS_SCHEMA_DIR:+:$GSETTINGS_SCHEMA_DIR}"
+export XDG_DATA_DIRS="/usr/share:/usr/local/share:$PREFIX/share:${XDG_DATA_DIRS:-}"
 export MUTTER_PLUGIN_DIR="$PREFIX/lib/mutter-16/plugins"
 export XDG_CURRENT_DESKTOP="${XDG_CURRENT_DESKTOP:-GNOME}"
 
-# Log di diagnostica (utile se GDM resta nero)
 log_dir="${XDG_STATE_HOME:-$HOME/.local/state}/folletto"
 mkdir -p "$log_dir"
-log_file="$log_dir/gnome-shell-$(date +%Y%m%d-%H%M%S).log"
+log_file="$log_dir/gnome-shell.log"
 {
   echo "=== folletto-gnome-shell $(date -Is) ==="
-  echo "PREFIX=$PREFIX"
+  echo "PREFIX=$PREFIX NOTIFY_SOCKET=${NOTIFY_SOCKET:-}"
   echo "XDG_SESSION_TYPE=${XDG_SESSION_TYPE:-}"
   echo "DISPLAY=${DISPLAY:-} WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-}"
   echo "argv: $SHELL_BIN $*"
 } >>"$log_file" 2>&1
 
+# Con Type=notify (systemd) non togliere stdout/stderr dallo shell.
+if [ -n "${NOTIFY_SOCKET:-}" ]; then
+  exec "$SHELL_BIN" "$@"
+fi
 exec "$SHELL_BIN" "$@" >>"$log_file" 2>&1

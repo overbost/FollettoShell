@@ -13,6 +13,7 @@ fi
 
 folletto_require_prefix
 folletto_export_prefix
+folletto_prep_dev_session
 folletto_prepare_x11
 
 runtime=$(folletto_runtime_dir)

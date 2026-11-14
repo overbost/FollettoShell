@@ -19,13 +19,13 @@ done
 # shellcheck source=folletto-session-lib.sh
 . "$_folletto_lib"
 folletto_setup_prefix
+folletto_warn_schema_missing
 folletto_disable_extensions_on_first_run
 export XDG_SESSION_TYPE=wayland
 
-# --builtin: non usare le unit systemd di sistema (org.gnome.Shell → /usr/bin/gnome-shell).
-# Altrimenti GDM lancia lo shell Debian con LD_LIBRARY_PATH Folletto e si blocca.
-if [ -n "${FOLLETTO_SESSION_LOG:-}" ]; then
-  echo "exec gnome-session --session=folletto --builtin $*" >>"$FOLLETTO_SESSION_LOG"
-  exec gnome-session --session=folletto --builtin "$@" >>"$FOLLETTO_SESSION_LOG" 2>&1
-fi
-exec gnome-session --session=folletto --builtin "$@"
+# Systemd + org.folletto.Shell (vedi usr/lib/systemd/user/), come GNOME stock.
+# Non reindirizzare stdout di gnome-session: GDM attende la registrazione sessione.
+{
+  echo "exec gnome-session --session=folletto $*"
+} >>"${FOLLETTO_SESSION_LOG:-/dev/null}" 2>&1 || true
+exec gnome-session --session=folletto "$@"

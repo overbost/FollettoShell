@@ -7,7 +7,7 @@
 #
 # Variabili:
 #   FOLLETTO_PREFIX   prefix runtime (default: /var/tmp/folletto/prefix)
-#   FOLLETTO_VERSION  versione pacchetto (default: 48.7-1)
+#   FOLLETTO_VERSION  versione pacchetto Debian (default: 0.1)
 #   FOLLETTO_DEB_OUT  directory output (default: <repo>/dist)
 #   FOLLETTO_STUB=1   crea un prefix minimo per smoke-test del packaging
 set -eu
@@ -15,7 +15,7 @@ set -eu
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
 REPO_ROOT=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
 PREFIX="${FOLLETTO_PREFIX:-/var/tmp/folletto/prefix}"
-VERSION="${FOLLETTO_VERSION:-48.7-1}"
+VERSION="${FOLLETTO_VERSION:-0.1}"
 OUTDIR="${FOLLETTO_DEB_OUT:-$REPO_ROOT/dist}"
 ARCH=$(dpkg --print-architecture)
 PKG_NAME=folletto-shell
@@ -85,11 +85,35 @@ mkdir -p \
   "$PKGDIR/usr/share/glib-2.0/schemas" \
   "$PKGDIR/usr/share/gnome-control-center/keybindings" \
   "$PKGDIR/usr/share/doc/$PKG_NAME" \
+  "$PKGDIR/usr/lib/systemd/user" \
+  "$PKGDIR/usr/lib/systemd/user/gnome-session@folletto.target.d" \
   "$PKGDIR$OPT_PREFIX/libexec"
 
 echo "Copio runtime da $PREFIX → $OPT_PREFIX ..."
 # Evita di portare cache/build junk; copia il tree installato.
 tar -C "$PREFIX" -cf - . | tar -C "$PKGDIR$OPT_PREFIX" -xf -
+
+# Riscrivi path dev nei file di testo (dbus, gjs, .desktop nel prefix).
+find "$PKGDIR$OPT_PREFIX" -type f \
+  ! -path '*/bin/*' ! -path '*/lib/*' ! -path '*/libexec/*' \
+  -exec grep -Il '/var/tmp/folletto/prefix' {} + 2>/dev/null \
+  | xargs -r sed -i "s|/var/tmp/folletto/prefix|$OPT_PREFIX|g" || true
+
+# Schema overlay (default mode, keybind) sempre allineato al repo.
+install -m 644 "$REPO_ROOT/overlay/mutter/data/org.folletto.wm.gschema.xml" \
+  "$PKGDIR$OPT_PREFIX/share/glib-2.0/schemas/org.folletto.wm.gschema.xml"
+install -m 644 "$REPO_ROOT/overlay/mutter/data/org.folletto.wm.gschema.xml" \
+  "$PKGDIR/usr/share/glib-2.0/schemas/org.folletto.wm.gschema.xml"
+if command -v glib-compile-schemas >/dev/null 2>&1; then
+  glib-compile-schemas "$PKGDIR$OPT_PREFIX/share/glib-2.0/schemas"
+  glib-compile-schemas "$PKGDIR/usr/share/glib-2.0/schemas"
+fi
+
+if strings "$PKGDIR$OPT_PREFIX/lib/libmutter-16.so.0" 2>/dev/null \
+  | grep -q '/var/tmp/folletto/prefix'; then
+  echo "NOTA: libmutter contiene ancora /var/tmp/folletto/prefix (compile-time)." >&2
+  echo "      postinst crea symlink compat; per fix definitivo: ./scripts/build-for-deb.sh" >&2
+fi
 
 # Settings: installa lo script nel prefix e un wrapper in /usr/bin
 install -m 755 "$REPO_ROOT/overlay/settings/folletto-settings" \
@@ -120,8 +144,19 @@ install -m 644 "$REPO_ROOT/overlay/session/org.folletto.Shell.desktop" \
 install -m 644 "$REPO_ROOT/overlay/session/org.folletto.Settings.desktop" \
   "$PKGDIR/usr/share/applications/org.folletto.Settings.desktop"
 
+# Unit systemd utente (org.folletto.Shell + gnome-session@folletto)
+install -m 644 "$REPO_ROOT/overlay/session/systemd/org.folletto.Shell.target" \
+  "$PKGDIR/usr/lib/systemd/user/org.folletto.Shell.target"
+install -m 644 "$REPO_ROOT/overlay/session/systemd/org.folletto.Shell@wayland.service" \
+  "$PKGDIR/usr/lib/systemd/user/org.folletto.Shell@wayland.service"
+install -m 644 "$REPO_ROOT/overlay/session/systemd/org.folletto.Shell@x11.service" \
+  "$PKGDIR/usr/lib/systemd/user/org.folletto.Shell@x11.service"
+install -m 644 \
+  "$REPO_ROOT/overlay/session/systemd/gnome-session@folletto.target.d/folletto.session.conf" \
+  "$PKGDIR/usr/lib/systemd/user/gnome-session@folletto.target.d/folletto.session.conf"
+
 # Le unit systemd del prefix puntano al path di build (/var/tmp/...):
-# riscrivi verso /opt/folletto (fallback se qualcuno non usa --builtin).
+# riscrivi verso /opt/folletto (fallback per avvii non-packaged).
 if [ -d "$PKGDIR$OPT_PREFIX/lib/systemd/user" ]; then
   find "$PKGDIR$OPT_PREFIX/lib/systemd/user" -type f \( -name '*.service' -o -name '*.target' \) \
     -exec sed -i \

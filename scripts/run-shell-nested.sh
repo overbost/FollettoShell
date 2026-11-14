@@ -11,6 +11,7 @@ fi
 
 folletto_require_prefix
 folletto_export_prefix
+folletto_prep_dev_session
 folletto_prepare_wayland_socket
 folletto_bind_host_display
 
