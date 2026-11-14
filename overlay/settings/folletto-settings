@@ -1,0 +1,144 @@
+#!/usr/bin/env python3
+"""Pannello Impostazioni Folletto (Adwaita), analogo a una pagina di GNOME Impostazioni."""
+
+import gi
+
+gi.require_version("Gtk", "4.0")
+gi.require_version("Adw", "1")
+from gi.repository import Adw, Gio, Gtk, GLib
+
+
+class FollettoSettings(Adw.Application):
+    def __init__(self):
+        super().__init__(
+            application_id="org.folletto.Settings",
+            flags=Gio.ApplicationFlags.FLAGS_NONE,
+        )
+        self.settings = Gio.Settings.new("org.folletto.wm")
+
+    def do_activate(self):
+        win = self.props.active_window
+        if win:
+            win.present()
+            return
+
+        win = Adw.ApplicationWindow(application=self)
+        win.set_title("Folletto")
+        win.set_default_size(640, 560)
+
+        toolbar = Adw.ToolbarView()
+        header = Adw.HeaderBar()
+        header.set_title_widget(Adw.WindowTitle(title="Folletto", subtitle="Tiling i3"))
+        toolbar.add_top_bar(header)
+
+        prefs = Adw.PreferencesPage(title="Tiling")
+        prefs.set_icon_name("view-grid-symbolic")
+
+        mode = Adw.PreferencesGroup(
+            title="Modalità",
+            description="Passa tra il comportamento GNOME 48 e il tiling i3 senza uscire dalla sessione.",
+        )
+        i3_row = Adw.SwitchRow(
+            title="Modalità i3",
+            subtitle="Le nuove finestre vengono affiancate. Floating solo come eccezione.",
+        )
+        i3_row.set_active(self.settings.get_string("mode") == "i3")
+        i3_row.connect("notify::active", self._on_mode)
+        mode.add(i3_row)
+
+        deco_row = Adw.SwitchRow(
+            title="Mostra cornici",
+            subtitle="Barra del titolo e ombre sulle finestre affiancate. Disattivo = stile i3 (border none).",
+        )
+        self.settings.bind(
+            "show-decorations", deco_row, "active", Gio.SettingsBindFlags.DEFAULT
+        )
+        mode.add(deco_row)
+        prefs.add(mode)
+
+        layout = Adw.PreferencesGroup(
+            title="Layout predefinito",
+            description="Usato per i nuovi contenitori. Tabbed e stacked mostrano i titoli come in i3.",
+        )
+        combo = Gtk.StringList.new(
+            ["splith — tiling orizzontale", "splitv — tiling verticale", "tabbed — schede in riga", "stacked — titoli in colonna"]
+        )
+        layout_row = Adw.ComboRow(title="Nuove finestre", model=combo)
+        keys = ["splith", "splitv", "tabbed", "stacked"]
+        current = self.settings.get_string("default-layout")
+        if current in keys:
+            layout_row.set_selected(keys.index(current))
+        layout_row.connect(
+            "notify::selected",
+            lambda row, *_: self.settings.set_string(
+                "default-layout", keys[row.get_selected()]
+            ),
+        )
+        layout.add(layout_row)
+        prefs.add(layout)
+
+        gaps = Adw.PreferencesGroup(title="Spaziature")
+        inner = Adw.SpinRow(
+            title="Gap interno",
+            subtitle="Pixel tra una cella e l’altra",
+            adjustment=Gtk.Adjustment(
+                lower=0, upper=64, step_increment=1, page_increment=4, value=4
+            ),
+        )
+        self.settings.bind("gaps-inner", inner, "value", Gio.SettingsBindFlags.DEFAULT)
+        outer = Adw.SpinRow(
+            title="Gap esterno",
+            subtitle="Pixel intorno al workspace",
+            adjustment=Gtk.Adjustment(
+                lower=0, upper=64, step_increment=1, page_increment=4, value=4
+            ),
+        )
+        self.settings.bind("gaps-outer", outer, "value", Gio.SettingsBindFlags.DEFAULT)
+        gaps.add(inner)
+        gaps.add(outer)
+        prefs.add(gaps)
+
+        keys_group = Adw.PreferencesGroup(
+            title="Tastiera",
+            description="Le scorciatoie Folletto si modificano anche in Impostazioni → Tastiera.",
+        )
+        open_keys = Adw.ButtonRow(title="Apri scorciatoie da tastiera")
+        open_keys.connect("activated", self._open_keyboard)
+        keys_group.add(open_keys)
+        prefs.add(keys_group)
+
+        help_group = Adw.PreferencesGroup(title="Layout i3")
+        help_group.add(
+            Adw.ActionRow(
+                title="Tabbed",
+                subtitle="Una riga di schede con i nomi delle finestre; quella in focus è evidenziata.",
+            )
+        )
+        help_group.add(
+            Adw.ActionRow(
+                title="Stacked",
+                subtitle="I titoli sono uno sotto l’altro; sotto resta il contenuto della finestra attiva.",
+            )
+        )
+        prefs.add(help_group)
+
+        toolbar.set_content(prefs)
+        win.set_content(toolbar)
+        win.present()
+
+    def _on_mode(self, row, _pspec):
+        self.settings.set_string("mode", "i3" if row.get_active() else "normal")
+
+    def _open_keyboard(self, _row):
+        try:
+            Gio.Subprocess.new(
+                ["gnome-control-center", "keyboard"], Gio.SubprocessFlags.NONE
+            )
+        except GLib.Error:
+            pass
+
+
+if __name__ == "__main__":
+    Adw.init()
+    app = FollettoSettings()
+    raise SystemExit(app.run())

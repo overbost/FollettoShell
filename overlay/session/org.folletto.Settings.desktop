@@ -1,0 +1,14 @@
+[Desktop Entry]
+Name=Folletto
+Name[it]=Folletto
+Comment=Tiling i3, cornici, gap e layout
+Comment[it]=Tiling i3, cornici, gap e layout
+Exec=folletto-settings
+Icon=org.gnome.Settings-multitasking-symbolic
+Terminal=false
+Type=Application
+StartupNotify=true
+Categories=GNOME;GTK;Settings;DesktopSettings;X-GNOME-Settings-Panel;X-GNOME-PersonalizationSettings;
+X-GNOME-Settings-Panel=folletto
+OnlyShowIn=GNOME;
+Keywords=tiling;i3;folletto;tabbed;stacked;cornici;gap;

@@ -1,0 +1,208 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist>
+  <schema id="org.folletto.wm" path="/org/folletto/wm/">
+    <key name="mode" type="s">
+      <default>'normal'</default>
+      <summary>Window manager mode</summary>
+      <description>normal = GNOME 48 behaviour; i3 = tiling by default</description>
+    </key>
+    <key name="show-decorations" type="b">
+      <default>false</default>
+      <summary>Show window decorations in tiling mode</summary>
+      <description>If false, tiled windows have no frame/shadow/titlebar chrome. Floating windows are unchanged.</description>
+    </key>
+    <key name="gaps-inner" type="i">
+      <default>4</default>
+      <summary>Inner gap between tiled windows</summary>
+    </key>
+    <key name="gaps-outer" type="i">
+      <default>4</default>
+      <summary>Outer gap around the workspace</summary>
+    </key>
+    <key name="default-layout" type="s">
+      <default>'splith'</default>
+      <summary>Default split layout for new containers</summary>
+      <description>splith, splitv, tabbed or stacked</description>
+    </key>
+    <key name="toggle-mode" type="as">
+      <default><![CDATA[['<Super><Shift>t']]]></default>
+      <summary>Toggle i3 / normal mode</summary>
+    </key>
+    <key name="focus-left" type="as">
+      <default><![CDATA[['<Super>h']]]></default>
+      <summary>Focus left</summary>
+    </key>
+    <key name="focus-right" type="as">
+      <default><![CDATA[['<Super>l']]]></default>
+      <summary>Focus right</summary>
+    </key>
+    <key name="focus-up" type="as">
+      <default><![CDATA[['<Super>k']]]></default>
+      <summary>Focus up</summary>
+    </key>
+    <key name="focus-down" type="as">
+      <default><![CDATA[['<Super>j']]]></default>
+      <summary>Focus down</summary>
+    </key>
+    <key name="move-left" type="as">
+      <default><![CDATA[['<Super><Shift>h']]]></default>
+      <summary>Move left</summary>
+    </key>
+    <key name="move-right" type="as">
+      <default><![CDATA[['<Super><Shift>l']]]></default>
+      <summary>Move right</summary>
+    </key>
+    <key name="move-up" type="as">
+      <default><![CDATA[['<Super><Shift>k']]]></default>
+      <summary>Move up</summary>
+    </key>
+    <key name="move-down" type="as">
+      <default><![CDATA[['<Super><Shift>j']]]></default>
+      <summary>Move down</summary>
+    </key>
+    <key name="split-h" type="as">
+      <default><![CDATA[['<Super>b']]]></default>
+      <summary>Split horizontal</summary>
+    </key>
+    <key name="split-v" type="as">
+      <default><![CDATA[['<Super>v']]]></default>
+      <summary>Split vertical</summary>
+    </key>
+    <key name="layout-tabbed" type="as">
+      <default><![CDATA[['<Super>w']]]></default>
+      <summary>Tabbed layout</summary>
+    </key>
+    <key name="layout-stacked" type="as">
+      <default><![CDATA[['<Super>s']]]></default>
+      <summary>Stacked layout</summary>
+    </key>
+    <key name="layout-splith" type="as">
+      <default><![CDATA[['<Super><Shift>e']]]></default>
+      <summary>Horizontal tiling layout</summary>
+    </key>
+    <key name="layout-splitv" type="as">
+      <default><![CDATA[['<Super><Ctrl>e']]]></default>
+      <summary>Vertical tiling layout</summary>
+    </key>
+    <key name="layout-toggle-split" type="as">
+      <default><![CDATA[['<Super>e']]]></default>
+      <summary>Toggle split layout</summary>
+    </key>
+    <key name="floating-toggle" type="as">
+      <default><![CDATA[['<Super><Shift>space']]]></default>
+      <summary>Toggle floating</summary>
+    </key>
+    <key name="fullscreen" type="as">
+      <default><![CDATA[['<Super>f']]]></default>
+      <summary>Toggle fullscreen</summary>
+    </key>
+    <key name="kill" type="as">
+      <default><![CDATA[['<Super><Shift>q']]]></default>
+      <summary>Kill focused window</summary>
+    </key>
+    <key name="scratchpad-move" type="as">
+      <default><![CDATA[['<Super><Shift>minus']]]></default>
+      <summary>Move to scratchpad</summary>
+    </key>
+    <key name="scratchpad-show" type="as">
+      <default><![CDATA[['<Super>minus']]]></default>
+      <summary>Show scratchpad</summary>
+    </key>
+    <key name="mode-resize" type="as">
+      <default><![CDATA[['<Super>r']]]></default>
+      <summary>Enter resize mode</summary>
+    </key>
+    <key name="mode-default" type="as">
+      <default><![CDATA[['Escape']]]></default>
+      <summary>Leave resize mode</summary>
+    </key>
+    <key name="resize-grow-width" type="as">
+      <default><![CDATA[['<Super>Right']]]></default>
+      <summary>Grow width</summary>
+    </key>
+    <key name="resize-shrink-width" type="as">
+      <default><![CDATA[['<Super>Left']]]></default>
+      <summary>Shrink width</summary>
+    </key>
+    <key name="workspace-1" type="as">
+      <default><![CDATA[['<Super>1']]]></default>
+      <summary>Workspace 1</summary>
+    </key>
+    <key name="workspace-2" type="as">
+      <default><![CDATA[['<Super>2']]]></default>
+      <summary>Workspace 2</summary>
+    </key>
+    <key name="workspace-3" type="as">
+      <default><![CDATA[['<Super>3']]]></default>
+      <summary>Workspace 3</summary>
+    </key>
+    <key name="workspace-4" type="as">
+      <default><![CDATA[['<Super>4']]]></default>
+      <summary>Workspace 4</summary>
+    </key>
+    <key name="workspace-5" type="as">
+      <default><![CDATA[['<Super>5']]]></default>
+      <summary>Workspace 5</summary>
+    </key>
+    <key name="workspace-6" type="as">
+      <default><![CDATA[['<Super>6']]]></default>
+      <summary>Workspace 6</summary>
+    </key>
+    <key name="workspace-7" type="as">
+      <default><![CDATA[['<Super>7']]]></default>
+      <summary>Workspace 7</summary>
+    </key>
+    <key name="workspace-8" type="as">
+      <default><![CDATA[['<Super>8']]]></default>
+      <summary>Workspace 8</summary>
+    </key>
+    <key name="workspace-9" type="as">
+      <default><![CDATA[['<Super>9']]]></default>
+      <summary>Workspace 9</summary>
+    </key>
+    <key name="workspace-10" type="as">
+      <default><![CDATA[['<Super>0']]]></default>
+      <summary>Workspace 10</summary>
+    </key>
+    <key name="move-workspace-1" type="as">
+      <default><![CDATA[['<Super><Shift>1']]]></default>
+      <summary>Move to workspace 1</summary>
+    </key>
+    <key name="move-workspace-2" type="as">
+      <default><![CDATA[['<Super><Shift>2']]]></default>
+      <summary>Move to workspace 2</summary>
+    </key>
+    <key name="move-workspace-3" type="as">
+      <default><![CDATA[['<Super><Shift>3']]]></default>
+      <summary>Move to workspace 3</summary>
+    </key>
+    <key name="move-workspace-4" type="as">
+      <default><![CDATA[['<Super><Shift>4']]]></default>
+      <summary>Move to workspace 4</summary>
+    </key>
+    <key name="move-workspace-5" type="as">
+      <default><![CDATA[['<Super><Shift>5']]]></default>
+      <summary>Move to workspace 5</summary>
+    </key>
+    <key name="move-workspace-6" type="as">
+      <default><![CDATA[['<Super><Shift>6']]]></default>
+      <summary>Move to workspace 6</summary>
+    </key>
+    <key name="move-workspace-7" type="as">
+      <default><![CDATA[['<Super><Shift>7']]]></default>
+      <summary>Move to workspace 7</summary>
+    </key>
+    <key name="move-workspace-8" type="as">
+      <default><![CDATA[['<Super><Shift>8']]]></default>
+      <summary>Move to workspace 8</summary>
+    </key>
+    <key name="move-workspace-9" type="as">
+      <default><![CDATA[['<Super><Shift>9']]]></default>
+      <summary>Move to workspace 9</summary>
+    </key>
+    <key name="move-workspace-10" type="as">
+      <default><![CDATA[['<Super><Shift>0']]]></default>
+      <summary>Move to workspace 10</summary>
+    </key>
+  </schema>
+</schemalist>

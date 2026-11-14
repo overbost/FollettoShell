@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<KeyListEntries schema="org.folletto.wm"
+                group="system"
+                name="Folletto tiling"
+                wm_name="GNOME Shell"
+                package="mutter">
+
+	<KeyListEntry name="toggle-mode" description="Passa tra modalità i3 e GNOME normale"/>
+
+	<KeyListEntry name="focus-left" description="Focus a sinistra"/>
+	<KeyListEntry name="focus-right" description="Focus a destra"/>
+	<KeyListEntry name="focus-up" description="Focus in alto"/>
+	<KeyListEntry name="focus-down" description="Focus in basso"/>
+
+	<KeyListEntry name="move-left" description="Sposta la finestra a sinistra"/>
+	<KeyListEntry name="move-right" description="Sposta la finestra a destra"/>
+	<KeyListEntry name="move-up" description="Sposta la finestra in alto"/>
+	<KeyListEntry name="move-down" description="Sposta la finestra in basso"/>
+
+	<KeyListEntry name="split-h" description="Prossimo split orizzontale"/>
+	<KeyListEntry name="split-v" description="Prossimo split verticale"/>
+
+	<KeyListEntry name="layout-splith" description="Layout tiling orizzontale"/>
+	<KeyListEntry name="layout-splitv" description="Layout tiling verticale"/>
+	<KeyListEntry name="layout-tabbed" description="Layout a schede (tabbed)"/>
+	<KeyListEntry name="layout-stacked" description="Layout impilato (stacked)"/>
+	<KeyListEntry name="layout-toggle-split" description="Alterna split orizzontale/verticale"/>
+	<KeyListEntry name="floating-toggle" description="Alterna finestra floating"/>
+
+	<KeyListEntry name="fullscreen" description="Schermo intero"/>
+	<KeyListEntry name="kill" description="Chiudi la finestra attiva"/>
+
+	<KeyListEntry name="scratchpad-move" description="Sposta nello scratchpad"/>
+	<KeyListEntry name="scratchpad-show" description="Mostra scratchpad"/>
+
+	<KeyListEntry name="mode-resize" description="Entra in modalità ridimensionamento"/>
+	<KeyListEntry name="mode-default" description="Esci dalla modalità ridimensionamento"/>
+	<KeyListEntry name="resize-grow-width" description="Aumenta larghezza"/>
+	<KeyListEntry name="resize-shrink-width" description="Riduci larghezza"/>
+
+	<KeyListEntry name="workspace-1" description="Workspace 1"/>
+	<KeyListEntry name="workspace-2" description="Workspace 2"/>
+	<KeyListEntry name="workspace-3" description="Workspace 3"/>
+	<KeyListEntry name="workspace-4" description="Workspace 4"/>
+	<KeyListEntry name="workspace-5" description="Workspace 5"/>
+	<KeyListEntry name="workspace-6" description="Workspace 6"/>
+	<KeyListEntry name="workspace-7" description="Workspace 7"/>
+	<KeyListEntry name="workspace-8" description="Workspace 8"/>
+	<KeyListEntry name="workspace-9" description="Workspace 9"/>
+	<KeyListEntry name="workspace-10" description="Workspace 10"/>
+
+	<KeyListEntry name="move-workspace-1" description="Sposta al workspace 1"/>
+	<KeyListEntry name="move-workspace-2" description="Sposta al workspace 2"/>
+	<KeyListEntry name="move-workspace-3" description="Sposta al workspace 3"/>
+	<KeyListEntry name="move-workspace-4" description="Sposta al workspace 4"/>
+	<KeyListEntry name="move-workspace-5" description="Sposta al workspace 5"/>
+	<KeyListEntry name="move-workspace-6" description="Sposta al workspace 6"/>
+	<KeyListEntry name="move-workspace-7" description="Sposta al workspace 7"/>
+	<KeyListEntry name="move-workspace-8" description="Sposta al workspace 8"/>
+	<KeyListEntry name="move-workspace-9" description="Sposta al workspace 9"/>
+	<KeyListEntry name="move-workspace-10" description="Sposta al workspace 10"/>
+
+</KeyListEntries>

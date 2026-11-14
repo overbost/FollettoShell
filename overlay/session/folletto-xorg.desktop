@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=Folletto on Xorg
+Comment=GNOME Folletto con tiling i3, sessione X11
+Exec=folletto-session-x11
+TryExec=folletto-session-x11
+Type=Application
+DesktopNames=GNOME
+X-GDM-SessionRegisters=true

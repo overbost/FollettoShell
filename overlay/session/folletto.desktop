@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=Folletto
+Comment=GNOME Folletto con tiling i3, sessione Wayland
+Exec=folletto-session
+TryExec=folletto-session
+Type=Application
+DesktopNames=GNOME
+X-GDM-SessionRegisters=true
+X-GDM-CanRunHeadless=true
