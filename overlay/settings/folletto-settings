@@ -58,11 +58,12 @@ class FollettoSettings(Adw.Application):
 
         layout = Adw.PreferencesGroup(
             title="Layout predefinito",
-            description="Griglia (default): prima finestra a schermo intero, poi split automatici H/V sul focus. Tabbed e stacked mostrano i titoli come in i3.",
+            description="Griglia (default): split automatici H/V. Niri: strip orizzontale scrollabile, finestre a metà schermo. Tabbed/stacked come in i3.",
         )
         combo = Gtk.StringList.new(
             [
                 "grid — griglia automatica",
+                "niri — strip scrollabile",
                 "splith — tiling orizzontale",
                 "splitv — tiling verticale",
                 "tabbed — schede in riga",
@@ -70,7 +71,7 @@ class FollettoSettings(Adw.Application):
             ]
         )
         layout_row = Adw.ComboRow(title="Nuove finestre", model=combo)
-        keys = ["grid", "splith", "splitv", "tabbed", "stacked"]
+        keys = ["grid", "niri", "splith", "splitv", "tabbed", "stacked"]
         current = self.settings.get_string("default-layout")
         if current in keys:
             layout_row.set_selected(keys.index(current))
@@ -120,6 +121,12 @@ class FollettoSettings(Adw.Application):
             Adw.ActionRow(
                 title="Griglia",
                 subtitle="1ª a schermo intero; 2ª divide a metà; 3ª spezza la 2ª in verticale (sopra/sotto a destra); poi alterna.",
+            )
+        )
+        help_group.add(
+            Adw.ActionRow(
+                title="Niri",
+                subtitle="Colonne su strip infinito; nuove finestre a metà schermo senza ridimensionare le altre. Swipe 3 dita o Super+rotella per scorrere.",
             )
         )
         help_group.add(

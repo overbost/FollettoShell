@@ -21,6 +21,9 @@
 	<KeyListEntry name="split-v" description="Prossimo split verticale"/>
 
 	<KeyListEntry name="layout-grid" description="Layout griglia (split automatici H/V)"/>
+	<KeyListEntry name="layout-niri" description="Layout Niri (strip orizzontale scrollabile)"/>
+	<KeyListEntry name="scroll-left" description="Scorri lo strip Niri a sinistra"/>
+	<KeyListEntry name="scroll-right" description="Scorri lo strip Niri a destra"/>
 	<KeyListEntry name="layout-splith" description="Layout tiling orizzontale"/>
 	<KeyListEntry name="layout-splitv" description="Layout tiling verticale"/>
 	<KeyListEntry name="layout-tabbed" description="Layout a schede (tabbed)"/>

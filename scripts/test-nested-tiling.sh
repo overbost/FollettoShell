@@ -88,6 +88,14 @@ sleep 1.2
 echo "Layout grid"
 call org.folletto.Wm.Command 'layout grid'
 sleep 0.8
+echo "Layout niri"
+call org.folletto.Wm.Command 'layout niri'
+sleep 0.8
+echo "Scroll niri"
+call org.folletto.Wm.Command 'scroll right'
+sleep 0.4
+call org.folletto.Wm.Command 'scroll left'
+sleep 0.4
 echo "Layout splith"
 call org.folletto.Wm.Command 'layout splith'
 sleep 0.8

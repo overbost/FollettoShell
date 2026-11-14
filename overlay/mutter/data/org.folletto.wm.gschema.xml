@@ -22,7 +22,7 @@
     <key name="default-layout" type="s">
       <default>'grid'</default>
       <summary>Default split layout for new containers</summary>
-      <description>grid (auto H/V), splith, splitv, tabbed or stacked</description>
+      <description>grid (auto H/V), niri (scrollable strip), splith, splitv, tabbed or stacked</description>
     </key>
     <key name="toggle-mode" type="as">
       <default><![CDATA[['<Super><Shift>t']]]></default>
@@ -71,6 +71,18 @@
     <key name="layout-grid" type="as">
       <default><![CDATA[['<Super>g']]]></default>
       <summary>Grid layout (auto horizontal/vertical splits)</summary>
+    </key>
+    <key name="layout-niri" type="as">
+      <default><![CDATA[['<Super>n']]]></default>
+      <summary>Niri scrollable horizontal strip layout</summary>
+    </key>
+    <key name="scroll-left" type="as">
+      <default><![CDATA[['<Super><Alt>h']]]></default>
+      <summary>Scroll Niri strip left</summary>
+    </key>
+    <key name="scroll-right" type="as">
+      <default><![CDATA[['<Super><Alt>l']]]></default>
+      <summary>Scroll Niri strip right</summary>
     </key>
     <key name="layout-tabbed" type="as">
       <default><![CDATA[['<Super>w']]]></default>
