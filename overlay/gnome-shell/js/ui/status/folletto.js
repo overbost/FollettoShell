@@ -12,6 +12,8 @@ import * as Util from '../../misc/util.js';
 import {QuickToggle, SystemIndicator} from '../quickSettings.js';
 
 const LAYOUTS = [
+    {id: 'grid', title: _('Griglia'), command: 'layout grid', icon: 'view-app-grid-symbolic'},
+    {id: 'niri', title: _('Niri'), command: 'layout niri', icon: 'view-continuous-symbolic'},
     {id: 'splith', title: _('Tiling orizzontale'), command: 'layout splith', icon: 'view-grid-symbolic'},
     {id: 'splitv', title: _('Tiling verticale'), command: 'layout splitv', icon: 'view-dual-symbolic'},
     {id: 'tabbed', title: _('Tabbed'), command: 'layout tabbed', icon: 'tab-new-symbolic'},
@@ -19,13 +21,17 @@ const LAYOUTS = [
     {id: 'floating', title: _('Floating'), command: 'layout floating', icon: 'window-new-symbolic'},
 ];
 
+const NIRI_SWIPE_FINGERS = 3;
+const NIRI_SWIPE_MULTIPLIER = 2.5;
+const NIRI_SCROLL_STEP = 48;
+
 const CELL_STYLE =
     'border: 2px solid rgba(255,255,255,0.35); background-color: rgba(53,132,228,0.10); border-radius: 8px;';
 const CELL_ACTIVE_STYLE =
     'border: 3px solid rgb(53,132,228); background-color: rgba(53,132,228,0.32); border-radius: 8px;';
 
 function layoutIcon(layout) {
-    return LAYOUTS.find(item => item.id === layout)?.icon ?? 'view-grid-symbolic';
+    return LAYOUTS.find(item => item.id === layout)?.icon ?? 'view-app-grid-symbolic';
 }
 
 function currentLayout() {
@@ -298,8 +304,121 @@ class FollettoTabChrome {
     }
 }
 
+class FollettoNiriGestures {
+    constructor() {
+        this._swipeState = 'none';
+        this._display = global.display;
+        this._stageId = global.stage.connect('captured-event',
+            (_actor, event) => this._onEvent(event));
+    }
+
+    _active() {
+        try {
+            if (this._display.get_wm_mode() !== Meta.WmMode.I3)
+                return false;
+            return currentLayout() === 'niri';
+        } catch {
+            return false;
+        }
+    }
+
+    _onEvent(event) {
+        if (!this._active())
+            return Clutter.EVENT_PROPAGATE;
+
+        const type = event.type();
+
+        if (type === Clutter.EventType.TOUCHPAD_SWIPE)
+            return this._onTouchpadSwipe(event);
+
+        if (type === Clutter.EventType.SCROLL)
+            return this._onScroll(event);
+
+        return Clutter.EVENT_PROPAGATE;
+    }
+
+    _onTouchpadSwipe(event) {
+        try {
+            if (event.get_touchpad_gesture_finger_count() !== NIRI_SWIPE_FINGERS)
+                return Clutter.EVENT_PROPAGATE;
+
+            const phase = event.get_gesture_phase();
+            if (phase === Clutter.TouchpadGesturePhase.BEGIN)
+                this._swipeState = 'none';
+
+            if (this._swipeState === 'ignored')
+                return Clutter.EVENT_PROPAGATE;
+
+            const [dx, dy] = event.get_gesture_motion_delta();
+            if (this._swipeState === 'none' && dx === 0 && dy === 0)
+                return Clutter.EVENT_PROPAGATE;
+
+            if (this._swipeState === 'none') {
+                if (Math.abs(dx) <= Math.abs(dy)) {
+                    this._swipeState = 'ignored';
+                    return Clutter.EVENT_PROPAGATE;
+                }
+                this._swipeState = 'handling';
+            }
+
+            if (phase === Clutter.TouchpadGesturePhase.UPDATE ||
+                phase === Clutter.TouchpadGesturePhase.BEGIN) {
+                const delta = Math.round(-dx * NIRI_SWIPE_MULTIPLIER);
+                if (delta !== 0)
+                    i3Command(`scroll delta ${delta}`);
+            }
+
+            if (phase === Clutter.TouchpadGesturePhase.END ||
+                phase === Clutter.TouchpadGesturePhase.CANCEL)
+                this._swipeState = 'none';
+
+            return Clutter.EVENT_STOP;
+        } catch (e) {
+            console.warn('Folletto niri swipe', e);
+            return Clutter.EVENT_PROPAGATE;
+        }
+    }
+
+    _onScroll(event) {
+        try {
+            const mods = event.get_state();
+            if (!(mods & Clutter.ModifierType.SUPER_MASK))
+                return Clutter.EVENT_PROPAGATE;
+
+            let dx = 0;
+            const dir = event.get_scroll_direction();
+            if (dir === Clutter.ScrollDirection.SMOOTH) {
+                const [sx, sy] = event.get_scroll_delta();
+                if (Math.abs(sx) >= Math.abs(sy))
+                    dx = sx * NIRI_SCROLL_STEP;
+                else
+                    dx = sy * NIRI_SCROLL_STEP;
+            } else if (dir === Clutter.ScrollDirection.LEFT) {
+                dx = -NIRI_SCROLL_STEP;
+            } else if (dir === Clutter.ScrollDirection.RIGHT) {
+                dx = NIRI_SCROLL_STEP;
+            } else if (dir === Clutter.ScrollDirection.UP) {
+                dx = -NIRI_SCROLL_STEP;
+            } else if (dir === Clutter.ScrollDirection.DOWN) {
+                dx = NIRI_SCROLL_STEP;
+            }
+
+            dx = Math.round(dx);
+            if (dx === 0)
+                return Clutter.EVENT_PROPAGATE;
+
+            i3Command(`scroll delta ${dx}`);
+            return Clutter.EVENT_STOP;
+        } catch (e) {
+            console.warn('Folletto niri scroll', e);
+            return Clutter.EVENT_PROPAGATE;
+        }
+    }
+}
+
 let _dragOverlay = null;
 let _tabChrome = null;
+let _niriGestures = null;
 
 function ensureDragOverlay() {
     _dragOverlay ??= new FollettoDragOverlay();
@@ -307,6 +426,10 @@ function ensureDragOverlay() {
 
 function ensureTabChrome() {
     _tabChrome ??= new FollettoTabChrome();
+}
+
+function ensureNiriGestures() {
+    _niriGestures ??= new FollettoNiriGestures();
 }
 
 const FollettoToggle = GObject.registerClass(
@@ -348,6 +471,7 @@ export const Indicator = GObject.registerClass(
 class Indicator extends SystemIndicator {
     _init() {
         super._init();
+        ensureNiriGestures();
         this.quickSettingsItems.push(new FollettoToggle());
     }
 });
@@ -357,6 +481,7 @@ class LayoutIndicator extends PanelMenu.Button {
     _init() {
         super._init(0.5, _('Folletto layout'));
         /* Drop overlay on uiGroup crashes nested Mutter during layout_tree. */
+        ensureNiriGestures();
 
         this._icon = new St.Icon({
             style_class: 'system-status-icon',

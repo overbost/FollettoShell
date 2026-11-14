@@ -35,6 +35,8 @@
 
 typedef enum
 {
+  FOLLETTO_LAYOUT_GRID,     /* auto: split binari H/V alternati sul focus */
+  FOLLETTO_LAYOUT_NIRI,     /* strip orizzontale scrollabile (stile Niri) */
   FOLLETTO_LAYOUT_SPLITH,
   FOLLETTO_LAYOUT_SPLITV,
   FOLLETTO_LAYOUT_TABBED,
@@ -60,6 +62,7 @@ typedef struct
   int monitor;
   FollettoNode *root;
   FollettoNode *focus;
+  double view_offset; /* scroll orizzontale Niri, in pixel */
 } FollettoTree;
 
 struct _FollettoWm
@@ -106,6 +109,14 @@ static GVariant * folletto_wm_get_chrome (FollettoWm *wm);
 static void folletto_wm_export_dbus (FollettoWm *wm);
 static gboolean folletto_wm_export_dbus_idle (gpointer data);
 static FollettoLayout layout_from_name (const char *name);
+static gboolean tree_is_niri (FollettoWm *wm, FollettoTree *tree);
+static void rebuild_as_niri (FollettoTree *tree);
+static void niri_layout_tree (FollettoWm *wm, FollettoTree *tree, const MtkRectangle *area);
+static FollettoNode * niri_column_node (FollettoNode *leaf);
+static void cmd_scroll_delta (FollettoWm *wm, double dx);
+static void on_focus_window_niri (MetaDisplay *display,
+                                  GParamSpec  *pspec,
+                                  FollettoWm  *wm);
 
 static guint
 tree_key (int workspace,
@@ -279,7 +290,15 @@ apply_chrome (FollettoWm *wm,
   changed = window->hide_decorations != hide;
 
   window->hide_decorations = hide;
-  if (hide)
+  /* Niri posiziona colonne anche fuori dallo schermo: niente vincoli ai bordi. */
+  if (tiled && wm->next_layout == FOLLETTO_LAYOUT_NIRI)
+    {
+      window->edge_constraints.top = META_EDGE_CONSTRAINT_NONE;
+      window->edge_constraints.right = META_EDGE_CONSTRAINT_NONE;
+      window->edge_constraints.bottom = META_EDGE_CONSTRAINT_NONE;
+      window->edge_constraints.left = META_EDGE_CONSTRAINT_NONE;
+    }
+  else if (hide)
     {
       window->edge_constraints.top = META_EDGE_CONSTRAINT_MONITOR;
       window->edge_constraints.right = META_EDGE_CONSTRAINT_MONITOR;
@@ -426,6 +445,23 @@ layout_node (FollettoWm          *wm,
 }
 
 static void
+sync_tree_focus (FollettoWm   *wm,
+                 FollettoTree *tree)
+{
+  MetaWindow *fw;
+  FollettoNode *n;
+
+  if (!wm || !tree)
+    return;
+  fw = meta_display_get_focus_window (wm->display);
+  if (!fw)
+    return;
+  n = g_hash_table_lookup (wm->nodes, fw);
+  if (n && !n->floating)
+    tree->focus = n;
+}
+
+static void
 folletto_layout_tree (FollettoWm   *wm,
                       FollettoTree *tree)
 {
@@ -446,8 +482,12 @@ folletto_layout_tree (FollettoWm   *wm,
   area.y += wm->gaps_outer;
   area.width = MAX (area.width - 2 * wm->gaps_outer, 1);
   area.height = MAX (area.height - 2 * wm->gaps_outer, 1);
+  sync_tree_focus (wm, tree);
   wm->layout_busy = TRUE;
-  layout_node (wm, tree->root, &area, tree->focus);
+  if (tree_is_niri (wm, tree))
+    niri_layout_tree (wm, tree, &area);
+  else
+    layout_node (wm, tree->root, &area, tree->focus);
   wm->layout_busy = FALSE;
 }
 
@@ -528,6 +568,10 @@ layout_name (FollettoLayout layout)
 {
   switch (layout)
     {
+    case FOLLETTO_LAYOUT_GRID:
+      return "grid";
+    case FOLLETTO_LAYOUT_NIRI:
+      return "niri";
     case FOLLETTO_LAYOUT_SPLITV:
       return "splitv";
     case FOLLETTO_LAYOUT_TABBED:
@@ -549,13 +593,269 @@ folletto_wm_get_layout (FollettoWm *wm)
     return "normal";
 
   leaf = focused_leaf (wm);
+  if (leaf && leaf->floating)
+    return "floating";
+  /* Griglia/Niri: strategia di inserimento, non solo layout del container. */
+  if (wm->next_layout == FOLLETTO_LAYOUT_GRID)
+    return "grid";
+  if (wm->next_layout == FOLLETTO_LAYOUT_NIRI)
+    return "niri";
   if (!leaf)
     return layout_name (wm->next_layout);
-  if (leaf->floating)
-    return "floating";
   if (leaf->parent)
     return layout_name (leaf->parent->layout);
   return layout_name (leaf->layout);
+}
+
+/* Prossimo asse in modalità griglia: prima metà SX/DX, poi alterna. */
+static FollettoLayout
+grid_split_for_focus (FollettoNode *focus)
+{
+  if (focus && focus->parent &&
+      (focus->parent->layout == FOLLETTO_LAYOUT_SPLITH ||
+       focus->parent->layout == FOLLETTO_LAYOUT_SPLITV))
+    {
+      return focus->parent->layout == FOLLETTO_LAYOUT_SPLITH
+             ? FOLLETTO_LAYOUT_SPLITV
+             : FOLLETTO_LAYOUT_SPLITH;
+    }
+  return FOLLETTO_LAYOUT_SPLITH;
+}
+
+static FollettoLayout
+geometry_layout (FollettoLayout layout)
+{
+  if (layout == FOLLETTO_LAYOUT_GRID || layout == FOLLETTO_LAYOUT_NIRI)
+    return FOLLETTO_LAYOUT_SPLITH;
+  return layout;
+}
+
+static gboolean
+tree_is_niri (FollettoWm  *wm,
+              FollettoTree *tree)
+{
+  if (!wm || wm->next_layout != FOLLETTO_LAYOUT_NIRI)
+    return FALSE;
+  return tree && tree->root != NULL;
+}
+
+static FollettoNode *
+niri_column_node (FollettoNode *leaf)
+{
+  if (!leaf)
+    return NULL;
+  if (!leaf->parent)
+    return leaf;
+  if (leaf->parent->layout == FOLLETTO_LAYOUT_NIRI)
+    return leaf;
+  if ((leaf->parent->layout == FOLLETTO_LAYOUT_SPLITV ||
+       leaf->parent->layout == FOLLETTO_LAYOUT_SPLITH ||
+       leaf->parent->layout == FOLLETTO_LAYOUT_TABBED ||
+       leaf->parent->layout == FOLLETTO_LAYOUT_STACKED) &&
+      leaf->parent->parent &&
+      leaf->parent->parent->layout == FOLLETTO_LAYOUT_NIRI)
+    return leaf->parent;
+  return leaf;
+}
+
+static double
+niri_column_width_px (FollettoNode *col,
+                      int           area_width)
+{
+  double frac = (col && col->percent > 0.01) ? col->percent : 0.5;
+
+  return MAX (frac * (double) area_width, 64.0);
+}
+
+static void
+free_containers_keep_leaves (FollettoNode *n,
+                             GPtrArray    *leaves)
+{
+  guint i;
+
+  if (!n)
+    return;
+  if (node_is_leaf (n))
+    {
+      n->parent = NULL;
+      g_ptr_array_add (leaves, n);
+      return;
+    }
+  if (n->children)
+    {
+      for (i = 0; i < n->children->len; i++)
+        free_containers_keep_leaves (g_ptr_array_index (n->children, i), leaves);
+      g_ptr_array_free (n->children, TRUE);
+      n->children = NULL;
+    }
+  g_free (n);
+}
+
+static void
+rebuild_as_niri (FollettoTree *tree)
+{
+  GPtrArray *leaves;
+  FollettoNode *strip;
+  FollettoNode *old_focus;
+  guint i;
+
+  if (!tree)
+    return;
+  if (tree->root && tree->root->layout == FOLLETTO_LAYOUT_NIRI)
+    return;
+
+  leaves = g_ptr_array_new ();
+  old_focus = tree->focus;
+  if (tree->root)
+    {
+      if (node_is_leaf (tree->root))
+        {
+          tree->root->parent = NULL;
+          g_ptr_array_add (leaves, tree->root);
+        }
+      else
+        {
+          free_containers_keep_leaves (tree->root, leaves);
+        }
+    }
+  tree->root = NULL;
+
+  strip = node_new_split (FOLLETTO_LAYOUT_NIRI);
+  for (i = 0; i < leaves->len; i++)
+    {
+      FollettoNode *L = g_ptr_array_index (leaves, i);
+
+      if (L->floating)
+        continue;
+      L->parent = strip;
+      L->percent = 0.5;
+      g_ptr_array_add (strip->children, L);
+    }
+  tree->root = strip;
+  tree->view_offset = 0;
+  if (old_focus && !old_focus->floating && old_focus->parent == strip)
+    tree->focus = old_focus;
+  else
+    tree->focus = first_leaf (strip);
+  g_ptr_array_free (leaves, TRUE);
+}
+
+static void
+niri_ensure_visible (FollettoTree *tree,
+                     int           area_width,
+                     int           gap)
+{
+  FollettoNode *col;
+  FollettoNode *strip;
+  double x = 0;
+  double w;
+  double max_off = 0;
+  double total = 0;
+  guint i;
+
+  if (!tree || !tree->root || !tree->root->children || !tree->focus)
+    return;
+
+  strip = tree->root;
+  col = niri_column_node (tree->focus);
+
+  for (i = 0; i < strip->children->len; i++)
+    {
+      FollettoNode *c = g_ptr_array_index (strip->children, i);
+
+      w = niri_column_width_px (c, area_width);
+      total += w;
+      if (i + 1 < strip->children->len)
+        total += gap;
+    }
+  max_off = MAX (total - area_width, 0);
+
+  for (i = 0; i < strip->children->len; i++)
+    {
+      FollettoNode *c = g_ptr_array_index (strip->children, i);
+
+      w = niri_column_width_px (c, area_width);
+      if (c == col)
+        {
+          if (x < tree->view_offset)
+            tree->view_offset = x;
+          if (x + w > tree->view_offset + area_width)
+            tree->view_offset = x + w - area_width;
+          break;
+        }
+      x += w + gap;
+    }
+
+  tree->view_offset = CLAMP (tree->view_offset, 0, max_off);
+}
+
+static void
+niri_layout_tree (FollettoWm          *wm,
+                  FollettoTree        *tree,
+                  const MtkRectangle  *area)
+{
+  FollettoNode *strip = tree->root;
+  double cursor;
+  double total = 0;
+  double max_off;
+  guint i;
+  int gap = wm->gaps_inner;
+
+  if (!strip)
+    return;
+
+  if (node_is_leaf (strip))
+    {
+      MtkRectangle r = *area;
+      double frac = strip->percent > 0.01 ? strip->percent : 0.5;
+
+      r.width = MAX ((int) round (area->width * frac), 1);
+      strip->cell = r;
+      if (strip->window && !strip->floating && !strip->window->minimized)
+        apply_rect (strip->window, &r);
+      return;
+    }
+
+  if (!strip->children)
+    return;
+
+  niri_ensure_visible (tree, area->width, gap);
+
+  for (i = 0; i < strip->children->len; i++)
+    {
+      FollettoNode *c = g_ptr_array_index (strip->children, i);
+
+      total += niri_column_width_px (c, area->width);
+      if (i + 1 < strip->children->len)
+        total += gap;
+    }
+  max_off = MAX (total - area->width, 0);
+  tree->view_offset = CLAMP (tree->view_offset, 0, max_off);
+
+  cursor = area->x - tree->view_offset;
+  for (i = 0; i < strip->children->len; i++)
+    {
+      FollettoNode *c = g_ptr_array_index (strip->children, i);
+      MtkRectangle col_area;
+      int w = (int) round (niri_column_width_px (c, area->width));
+
+      col_area.x = (int) round (cursor);
+      col_area.y = area->y;
+      col_area.width = MAX (w, 1);
+      col_area.height = area->height;
+      c->cell = col_area;
+
+      if (node_is_leaf (c))
+        {
+          if (c->window && !c->floating && !c->window->minimized)
+            apply_rect (c->window, &col_area);
+        }
+      else
+        {
+          layout_node (wm, c, &col_area, tree->focus);
+        }
+      cursor += w + gap;
+    }
 }
 
 static void
@@ -915,6 +1215,67 @@ on_grab_op_end (MetaDisplay *display,
 }
 
 static void
+insert_as_sibling (FollettoTree *tree,
+                   FollettoNode *focus,
+                   FollettoNode *leaf)
+{
+  FollettoNode *parent = focus->parent;
+  guint idx = 0, i;
+
+  for (i = 0; i < parent->children->len; i++)
+    {
+      if (g_ptr_array_index (parent->children, i) == focus)
+        {
+          idx = i + 1;
+          break;
+        }
+    }
+  leaf->parent = parent;
+  g_ptr_array_insert (parent->children, (int) idx, leaf);
+  normalize_percents (parent);
+  tree->focus = leaf;
+}
+
+/* Divide il nodo focus a metà e colloca la nuova foglia nell'altra metà. */
+static void
+insert_binary_split (FollettoTree   *tree,
+                     FollettoNode   *focus,
+                     FollettoNode   *leaf,
+                     FollettoLayout  layout)
+{
+  FollettoNode *split = node_new_split (geometry_layout (layout));
+  FollettoNode *target = focus;
+
+  if (!target)
+    target = tree->root;
+
+  if (!target || !target->parent)
+    {
+      if (tree->root)
+        {
+          g_ptr_array_add (split->children, tree->root);
+          tree->root->parent = split;
+          tree->root->percent = 0.5;
+        }
+      g_ptr_array_add (split->children, leaf);
+      leaf->parent = split;
+      leaf->percent = 0.5;
+      tree->root = split;
+    }
+  else
+    {
+      replace_in_parent (target, split);
+      target->parent = split;
+      target->percent = 0.5;
+      g_ptr_array_add (split->children, target);
+      leaf->parent = split;
+      leaf->percent = 0.5;
+      g_ptr_array_add (split->children, leaf);
+    }
+  tree->focus = leaf;
+}
+
+static void
 folletto_insert_window (FollettoWm *wm,
                         MetaWindow *window)
 {
@@ -945,41 +1306,96 @@ folletto_insert_window (FollettoWm *wm,
   focus = tree->focus;
   if (!tree->root)
     {
-      tree->root = leaf;
-      tree->focus = leaf;
+      if (wm->next_layout == FOLLETTO_LAYOUT_NIRI)
+        {
+          FollettoNode *strip = node_new_split (FOLLETTO_LAYOUT_NIRI);
+
+          /* Default Niri: metà schermo, non full-bleed. */
+          leaf->percent = 0.5;
+          leaf->parent = strip;
+          g_ptr_array_add (strip->children, leaf);
+          tree->root = strip;
+          tree->focus = leaf;
+          tree->view_offset = 0;
+        }
+      else
+        {
+          /* Prima finestra (griglia/i3): schermo intero. */
+          tree->root = leaf;
+          tree->focus = leaf;
+        }
+    }
+  else if (wm->next_layout == FOLLETTO_LAYOUT_NIRI)
+    {
+      FollettoNode *strip;
+      FollettoNode *target = (focus && !focus->floating) ? focus : NULL;
+      FollettoNode *parent;
+      FollettoNode *col;
+      guint idx = 0, i;
+
+      if (tree->root->layout != FOLLETTO_LAYOUT_NIRI)
+        rebuild_as_niri (tree);
+      strip = tree->root;
+      leaf->percent = 0.5;
+      parent = target ? target->parent : NULL;
+
+      /* Completa uno split verticale preparato dentro la colonna. */
+      if (parent && parent->children && parent->children->len == 1 &&
+          parent->layout == FOLLETTO_LAYOUT_SPLITV &&
+          !node_is_tab_container (parent))
+        {
+          insert_as_sibling (tree, target, leaf);
+        }
+      else
+        {
+          col = target ? niri_column_node (target) : NULL;
+          leaf->parent = strip;
+          if (!col)
+            {
+              g_ptr_array_add (strip->children, leaf);
+            }
+          else
+            {
+              for (i = 0; i < strip->children->len; i++)
+                {
+                  if (g_ptr_array_index (strip->children, i) == col)
+                    {
+                      idx = i + 1;
+                      break;
+                    }
+                }
+              g_ptr_array_insert (strip->children, (int) idx, leaf);
+            }
+          tree->focus = leaf;
+        }
+    }
+  else if (wm->next_layout == FOLLETTO_LAYOUT_GRID)
+    {
+      FollettoNode *target = (focus && !focus->floating) ? focus
+                                                         : first_leaf (tree->root);
+      FollettoNode *parent = target ? target->parent : NULL;
+
+      /* Completa uno split esplicito (container con un solo figlio). */
+      if (parent && parent->children && parent->children->len == 1 &&
+          (parent->layout == FOLLETTO_LAYOUT_SPLITH ||
+           parent->layout == FOLLETTO_LAYOUT_SPLITV) &&
+          !node_is_tab_container (parent))
+        {
+          insert_as_sibling (tree, target, leaf);
+        }
+      else
+        {
+          /* 2ª: metà; 3ª: spezza la 2ª in verticale → 2ª sopra, 3ª sotto; ecc. */
+          insert_binary_split (tree, target, leaf, grid_split_for_focus (target));
+        }
     }
   else if (!focus || !focus->parent)
     {
-      FollettoNode *split = node_new_split (wm->next_layout);
-      if (tree->root)
-        {
-          g_ptr_array_add (split->children, tree->root);
-          tree->root->parent = split;
-          tree->root->percent = 0.5;
-        }
-      g_ptr_array_add (split->children, leaf);
-      leaf->parent = split;
-      leaf->percent = 0.5;
-      tree->root = split;
-      tree->focus = leaf;
+      insert_binary_split (tree, focus, leaf, wm->next_layout);
     }
   else
     {
-      FollettoNode *parent = focus->parent;
-      guint idx = 0, i;
-
-      for (i = 0; i < parent->children->len; i++)
-        {
-          if (g_ptr_array_index (parent->children, i) == focus)
-            {
-              idx = i + 1;
-              break;
-            }
-        }
-      leaf->parent = parent;
-      g_ptr_array_insert (parent->children, (int) idx, leaf);
-      normalize_percents (parent);
-      tree->focus = leaf;
+      insert_as_sibling (tree, focus, leaf);
     }
 
   g_signal_connect_swapped (window, "unmanaging",
@@ -994,6 +1410,9 @@ flatten_if_single (FollettoTree *tree,
   FollettoNode *only;
 
   if (!parent || !parent->children || parent->children->len != 1)
+    return;
+  /* Mantieni lo strip Niri anche con una sola colonna. */
+  if (parent->layout == FOLLETTO_LAYOUT_NIRI)
     return;
   only = g_ptr_array_index (parent->children, 0);
   if (parent == tree->root)
@@ -1131,7 +1550,8 @@ cmd_focus_dir (FollettoWm         *wm,
   while (n->parent)
     {
       parent = n->parent;
-      if ((horizontal && parent->layout == FOLLETTO_LAYOUT_SPLITH) ||
+      if ((horizontal && (parent->layout == FOLLETTO_LAYOUT_SPLITH ||
+                          parent->layout == FOLLETTO_LAYOUT_NIRI)) ||
           (!horizontal && parent->layout == FOLLETTO_LAYOUT_SPLITV) ||
           parent->layout == FOLLETTO_LAYOUT_TABBED ||
           parent->layout == FOLLETTO_LAYOUT_STACKED)
@@ -1147,22 +1567,30 @@ cmd_focus_dir (FollettoWm         *wm,
           if (forward && idx + 1 < parent->children->len)
             {
               FollettoNode *dest = first_leaf (g_ptr_array_index (parent->children, idx + 1));
+              FollettoTree *tree = focused_tree (wm);
+
               if (dest && dest->window)
                 {
-                  focused_tree (wm)->focus = dest;
+                  tree->focus = dest;
                   meta_window_activate (dest->window,
                                         meta_display_get_current_time (wm->display));
+                  if (tree_is_niri (wm, tree))
+                    folletto_layout_tree (wm, tree);
                 }
               return;
             }
           if (!forward && idx > 0)
             {
               FollettoNode *dest = first_leaf (g_ptr_array_index (parent->children, idx - 1));
+              FollettoTree *tree = focused_tree (wm);
+
               if (dest && dest->window)
                 {
-                  focused_tree (wm)->focus = dest;
+                  tree->focus = dest;
                   meta_window_activate (dest->window,
                                         meta_display_get_current_time (wm->display));
+                  if (tree_is_niri (wm, tree))
+                    folletto_layout_tree (wm, tree);
                 }
               return;
             }
@@ -1188,7 +1616,8 @@ cmd_move_dir (FollettoWm          *wm,
   parent = n->parent;
   while (parent)
     {
-      if ((horizontal && parent->layout == FOLLETTO_LAYOUT_SPLITH) ||
+      if ((horizontal && (parent->layout == FOLLETTO_LAYOUT_SPLITH ||
+                          parent->layout == FOLLETTO_LAYOUT_NIRI)) ||
           (!horizontal && parent->layout == FOLLETTO_LAYOUT_SPLITV))
         {
           for (i = 0; i < parent->children->len; i++)
@@ -1229,12 +1658,22 @@ cmd_split (FollettoWm    *wm,
   FollettoNode *split;
   FollettoTree *tree;
 
-  wm->next_layout = layout;
+  /* Griglia/Niri: lo split esplicito prepara il prossimo slot senza cambiare modalità. */
+  if (wm->next_layout != FOLLETTO_LAYOUT_GRID &&
+      wm->next_layout != FOLLETTO_LAYOUT_NIRI)
+    wm->next_layout = layout;
   if (!leaf)
     return;
 
   tree = focused_tree (wm);
-  split = node_new_split (layout);
+
+  /* In Niri, split h = nuova colonna (noop fino alla prossima finestra via insert);
+   * split v = impila nella colonna corrente. */
+  if (wm->next_layout == FOLLETTO_LAYOUT_NIRI &&
+      layout == FOLLETTO_LAYOUT_SPLITH)
+    return;
+
+  split = node_new_split (geometry_layout (layout));
   if (tree->root == leaf)
     {
       split->parent = NULL;
@@ -1245,6 +1684,22 @@ cmd_split (FollettoWm    *wm,
     }
   else
     {
+      FollettoNode *col = niri_column_node (leaf);
+
+      if (wm->next_layout == FOLLETTO_LAYOUT_NIRI &&
+          layout == FOLLETTO_LAYOUT_SPLITV && col &&
+          col->parent && col->parent->layout == FOLLETTO_LAYOUT_NIRI &&
+          node_is_leaf (col))
+        {
+          /* Sostituisci la colonna-foglia con uno stack verticale. */
+          split->percent = col->percent;
+          replace_in_parent (col, split);
+          col->parent = split;
+          col->percent = 1.0;
+          g_ptr_array_add (split->children, col);
+          return;
+        }
+
       replace_in_parent (leaf, split);
       leaf->parent = split;
       leaf->percent = 1.0;
@@ -1263,18 +1718,88 @@ cmd_layout (FollettoWm    *wm,
   unfloat_tree (tree);
   if (!leaf)
     leaf = focused_leaf (wm);
+
+  wm->next_layout = layout;
+
+  /* Griglia: strategia di inserimento, non layout geometrico del container. */
+  if (layout == FOLLETTO_LAYOUT_GRID)
+    {
+      emit_layout_changed (wm);
+      return;
+    }
+
+  if (layout == FOLLETTO_LAYOUT_NIRI)
+    {
+      if (tree)
+        {
+          rebuild_as_niri (tree);
+          folletto_layout_tree (wm, tree);
+        }
+      emit_layout_changed (wm);
+      return;
+    }
+
   if (!leaf)
     {
-      wm->next_layout = layout;
       emit_layout_changed (wm);
       return;
     }
   n = leaf->parent ? leaf->parent : leaf;
-  emit_layout_changed (wm);
+  /* Non sovrascrivere lo strip Niri con splith/splitv “locali” se si esce da niri:
+   * rebuild avviene solo entrando; uscendo si riassegna il container del focus. */
+  if (n->layout == FOLLETTO_LAYOUT_NIRI &&
+      (layout == FOLLETTO_LAYOUT_SPLITH || layout == FOLLETTO_LAYOUT_SPLITV))
+    {
+      FollettoNode *strip = n;
+      FollettoNode *flat = node_new_split (layout);
+      guint i;
+
+      for (i = 0; i < strip->children->len; i++)
+        {
+          FollettoNode *ch = g_ptr_array_index (strip->children, i);
+
+          ch->parent = flat;
+          ch->percent = 1.0 / MAX (strip->children->len, 1);
+          g_ptr_array_add (flat->children, ch);
+        }
+      g_ptr_array_set_size (strip->children, 0);
+      g_ptr_array_free (strip->children, TRUE);
+      g_free (strip);
+      tree->root = flat;
+      tree->view_offset = 0;
+      normalize_percents (flat);
+      folletto_layout_tree (wm, tree);
+      emit_layout_changed (wm);
+      return;
+    }
   n->layout = layout;
-  wm->next_layout = layout;
   folletto_layout_tree (wm, tree);
   emit_layout_changed (wm);
+}
+
+static void
+cmd_scroll_delta (FollettoWm *wm,
+                  double      dx)
+{
+  FollettoTree *tree = focused_tree (wm);
+
+  if (!tree || !tree_is_niri (wm, tree))
+    return;
+  tree->view_offset += dx;
+  folletto_layout_tree (wm, tree);
+}
+
+static void
+on_focus_window_niri (MetaDisplay *display,
+                      GParamSpec  *pspec,
+                      FollettoWm  *wm)
+{
+  (void) display;
+  (void) pspec;
+  if (!wm || wm->mode != META_WM_MODE_I3 ||
+      wm->next_layout != FOLLETTO_LAYOUT_NIRI)
+    return;
+  queue_layout (wm);
 }
 
 static void
@@ -1371,9 +1896,24 @@ cmd_resize (FollettoWm *wm,
   guint i, idx = 0;
   FollettoNode *sib;
   double delta = ppt / 100.0;
+  FollettoTree *tree;
 
   if (!leaf)
     return;
+
+  tree = focused_tree (wm);
+  if (tree_is_niri (wm, tree) && width)
+    {
+      FollettoNode *col = niri_column_node (leaf);
+
+      if (!grow)
+        delta = -delta;
+      /* Larghezza colonna in frazione di schermo (le altre non si rimpiccioliscono). */
+      col->percent = CLAMP (col->percent + delta, 0.15, 1.0);
+      folletto_layout_tree (wm, tree);
+      return;
+    }
+
   n = leaf;
   while (n->parent)
     {
@@ -1540,8 +2080,12 @@ folletto_wm_command (FollettoWm *wm,
         cmd_layout (wm, FOLLETTO_LAYOUT_TABBED);
       else if (g_str_equal (parts[1], "stacked"))
         cmd_layout (wm, FOLLETTO_LAYOUT_STACKED);
-      else if (g_str_equal (parts[1], "splith") || g_str_equal (parts[1], "default") ||
-               g_str_equal (parts[1], "tiling"))
+      else if (g_str_equal (parts[1], "grid") || g_str_equal (parts[1], "griglia") ||
+               g_str_equal (parts[1], "default") || g_str_equal (parts[1], "tiling"))
+        cmd_layout (wm, FOLLETTO_LAYOUT_GRID);
+      else if (g_str_equal (parts[1], "niri"))
+        cmd_layout (wm, FOLLETTO_LAYOUT_NIRI);
+      else if (g_str_equal (parts[1], "splith"))
         cmd_layout (wm, FOLLETTO_LAYOUT_SPLITH);
       else if (g_str_equal (parts[1], "splitv"))
         cmd_layout (wm, FOLLETTO_LAYOUT_SPLITV);
@@ -1555,6 +2099,17 @@ folletto_wm_command (FollettoWm *wm,
             cmd_layout (wm, n->layout == FOLLETTO_LAYOUT_SPLITH
                         ? FOLLETTO_LAYOUT_SPLITV : FOLLETTO_LAYOUT_SPLITH);
         }
+    }
+  else if (g_str_equal (parts[0], "scroll"))
+    {
+      if (parts[1] && g_str_equal (parts[1], "delta") && parts[2])
+        cmd_scroll_delta (wm, g_ascii_strtod (parts[2], NULL));
+      else if (parts[1] && g_str_equal (parts[1], "left"))
+        cmd_scroll_delta (wm, -120);
+      else if (parts[1] && g_str_equal (parts[1], "right"))
+        cmd_scroll_delta (wm, 120);
+      else
+        ok = FALSE;
     }
   else if (g_str_equal (parts[0], "floating"))
     {
@@ -1651,12 +2206,20 @@ on_i3_binding (MetaDisplay        *display,
     command = g_strdup ("layout tabbed");
   else if (g_str_equal (name, "layout-stacked"))
     command = g_strdup ("layout stacked");
+  else if (g_str_equal (name, "layout-grid"))
+    command = g_strdup ("layout grid");
+  else if (g_str_equal (name, "layout-niri"))
+    command = g_strdup ("layout niri");
   else if (g_str_equal (name, "layout-splith"))
     command = g_strdup ("layout splith");
   else if (g_str_equal (name, "layout-splitv"))
     command = g_strdup ("layout splitv");
   else if (g_str_equal (name, "layout-toggle-split"))
     command = g_strdup ("layout toggle split");
+  else if (g_str_equal (name, "scroll-left"))
+    command = g_strdup ("scroll left");
+  else if (g_str_equal (name, "scroll-right"))
+    command = g_strdup ("scroll right");
   else if (g_str_equal (name, "floating-toggle"))
     command = g_strdup ("floating toggle");
   else if (g_str_equal (name, "fullscreen"))
@@ -1693,8 +2256,9 @@ static const char *i3_binding_names[] = {
   "focus-left", "focus-right", "focus-up", "focus-down",
   "move-left", "move-right", "move-up", "move-down",
   "split-h", "split-v",
-  "layout-tabbed", "layout-stacked", "layout-splith", "layout-splitv",
+  "layout-grid", "layout-niri", "layout-tabbed", "layout-stacked", "layout-splith", "layout-splitv",
   "layout-toggle-split",
+  "scroll-left", "scroll-right",
   "floating-toggle", "fullscreen", "kill",
   "scratchpad-move", "scratchpad-show",
   "workspace-1", "workspace-2", "workspace-3", "workspace-4", "workspace-5",
@@ -1798,7 +2362,7 @@ folletto_wm_new (MetaDisplay *display)
 
   wm->display = display;
   wm->mode = META_WM_MODE_NORMAL;
-  wm->next_layout = FOLLETTO_LAYOUT_SPLITH;
+  wm->next_layout = FOLLETTO_LAYOUT_GRID;
   wm->gaps_inner = 4;
   wm->gaps_outer = 4;
   wm->drag_window = NULL;
@@ -1841,6 +2405,8 @@ folletto_wm_new (MetaDisplay *display)
                     G_CALLBACK (on_grab_op_begin), wm);
   g_signal_connect (display, "grab-op-end",
                     G_CALLBACK (on_grab_op_end), wm);
+  g_signal_connect (display, "notify::focus-window",
+                    G_CALLBACK (on_focus_window_niri), wm);
   g_timeout_add (2000, folletto_wm_export_dbus_idle, wm);
   return wm;
 }
@@ -1960,6 +2526,13 @@ static FollettoLayout
 layout_from_name (const char *name)
 {
   if (!name)
+    return FOLLETTO_LAYOUT_GRID;
+  if (g_str_equal (name, "grid") || g_str_equal (name, "griglia") ||
+      g_str_equal (name, "default") || g_str_equal (name, "tiling"))
+    return FOLLETTO_LAYOUT_GRID;
+  if (g_str_equal (name, "niri"))
+    return FOLLETTO_LAYOUT_NIRI;
+  if (g_str_equal (name, "splith"))
     return FOLLETTO_LAYOUT_SPLITH;
   if (g_str_equal (name, "splitv"))
     return FOLLETTO_LAYOUT_SPLITV;
@@ -1967,7 +2540,7 @@ layout_from_name (const char *name)
     return FOLLETTO_LAYOUT_TABBED;
   if (g_str_equal (name, "stacked"))
     return FOLLETTO_LAYOUT_STACKED;
-  return FOLLETTO_LAYOUT_SPLITH;
+  return FOLLETTO_LAYOUT_GRID;
 }
 
 static void

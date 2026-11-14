@@ -28,7 +28,8 @@ Toggle in nested mutter: `Super+Shift+t`. In GNOME Shell Folletto: Quick Setting
 
 - `focus|move left|right|up|down`
 - `split h|v|toggle`
-- `layout splith|splitv|tabbed|stacked|toggle`
+- `layout grid|niri|splith|splitv|tabbed|stacked|toggle` — **grid** (default): split automatici sul focus; **niri**: strip orizzontale scrollabile, finestre a metà schermo
+- `scroll left|right|delta N` — scorri la vista Niri (anche gesture: swipe 3 dita, Super+rotella)
 - `floating toggle`
 - `fullscreen`
 - `kill`
