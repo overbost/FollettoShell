@@ -11,6 +11,8 @@ import * as PopupMenu from '../popupMenu.js';
 import * as Util from '../../misc/util.js';
 import {QuickToggle, SystemIndicator} from '../quickSettings.js';
 
+const WORKSPACE_COUNT = 9;
+
 const LAYOUTS = [
     {id: 'grid', title: _('Griglia'), command: 'layout grid', icon: 'view-app-grid-symbolic'},
     {id: 'niri', title: _('Niri'), command: 'layout niri', icon: 'view-continuous-symbolic'},
@@ -24,6 +26,7 @@ const LAYOUTS = [
 const NIRI_SWIPE_FINGERS = 3;
 const NIRI_SWIPE_MULTIPLIER = 2.5;
 const NIRI_SCROLL_STEP = 48;
+const FOLLETTO_TAB_H = 32;
 
 const CELL_STYLE =
     'border: 2px solid rgba(255,255,255,0.35); background-color: rgba(53,132,228,0.10); border-radius: 8px;';
@@ -186,19 +189,84 @@ class FollettoDragOverlay {
 class FollettoTabChrome {
     constructor() {
         this._bars = [];
+        this._tabButtons = [];
         this._display = global.display;
         this._idle = 0;
+        this._layer = null;
+        this._box = null;
+        this._signature = '';
         const queue = () => this._queueSync();
         this._display.connect('wm-mode-changed', queue);
         this._display.connect('i3-layout-changed', queue);
         this._display.connect('notify::focus-window', queue);
+        this._display.connect('workareas-changed', queue);
+        this._display.connect('window-created', queue);
+        Main.overview.connectObject(
+            'showing', () => queue(),
+            'hiding', () => queue(),
+            this);
+        /* Poll leggero: aggiorna solo se cambia la firma (niente destroy continuo). */
+        this._pollId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 500, () => {
+            try {
+                const layout = currentLayout();
+                if (layout === 'tabbed' || layout === 'stacked')
+                    this._queueSync();
+            } catch {
+                /* ignore */
+            }
+            return GLib.SOURCE_CONTINUE;
+        });
         this._queueSync();
+    }
+
+    _ensureLayer() {
+        if (this._layer)
+            return this._layer;
+        this._layer = new St.Widget({
+            name: 'folletto-tab-chrome',
+            reactive: false,
+            visible: true,
+        });
+        /* addChrome: sopra le finestre, sotto top_window_group (menu/popup). */
+        Main.layoutManager.addChrome(this._layer, {
+            affectsStruts: false,
+            affectsInputRegion: true,
+        });
+        this._placeBelowSystemUi();
+        return this._layer;
+    }
+
+    _placeBelowSystemUi() {
+        const ui = Main.layoutManager.uiGroup;
+        const layer = this._layer;
+        if (!ui || !layer)
+            return;
+        try {
+            const modal = Main.layoutManager.modalDialogGroup;
+            if (modal && ui.contains(modal))
+                ui.set_child_below_sibling(layer, modal);
+        } catch {
+            /* ignore */
+        }
+        try {
+            if (global.top_window_group && ui.contains(global.top_window_group))
+                ui.set_child_below_sibling(layer, global.top_window_group);
+        } catch {
+            /* ignore */
+        }
+        try {
+            const panel = Main.layoutManager.panelBox;
+            if (panel && ui.contains(panel))
+                ui.set_child_below_sibling(layer, panel);
+        } catch {
+            /* ignore */
+        }
     }
 
     _queueSync() {
         if (this._idle)
             return;
-        this._idle = GLib.idle_add(GLib.PRIORITY_LOW, () => {
+        this._idle = GLib.idle_add(GLib.PRIORITY_DEFAULT, () => {
             this._idle = 0;
             try {
                 this._rebuildTabs();
@@ -210,85 +278,191 @@ class FollettoTabChrome {
     }
 
     _clearBars() {
-        for (const bar of this._bars) {
+        if (this._box) {
             try {
-                bar.visible = false;
-                bar.destroy();
+                this._box.destroy();
             } catch {
                 /* already gone */
             }
         }
+        this._box = null;
         this._bars = [];
+        this._tabButtons = [];
+        this._signature = '';
+    }
+
+    _workspaceWindows() {
+        const ws = global.workspace_manager.get_active_workspace();
+        const wins = [];
+        for (const actor of global.get_window_actors()) {
+            let win;
+            try {
+                win = actor.meta_window;
+            } catch {
+                continue;
+            }
+            if (!win || win.get_window_type() !== Meta.WindowType.NORMAL)
+                continue;
+            if (win.minimized)
+                continue;
+            try {
+                if (!win.located_on_workspace(ws))
+                    continue;
+            } catch {
+                if (win.get_workspace() !== ws)
+                    continue;
+            }
+            wins.push(win);
+        }
+        wins.sort((a, b) => Number(a.get_id()) - Number(b.get_id()));
+        return wins;
+    }
+
+    _gapsOuter() {
+        try {
+            const s = new Gio.Settings({schema_id: 'org.folletto.wm'});
+            return Math.max(0, s.get_int('gaps-outer'));
+        } catch {
+            return 4;
+        }
+    }
+
+    _tabStripRect(barH) {
+        const gaps = this._gapsOuter();
+        const focus = this._display.focus_window;
+        let monitorIndex = Main.layoutManager.primaryIndex;
+        try {
+            if (focus)
+                monitorIndex = focus.get_monitor();
+        } catch {
+            /* primary */
+        }
+        const wa = Main.layoutManager.getWorkAreaForMonitor(monitorIndex);
+        const panelBox = Main.layoutManager.panelBox;
+        let top = wa.y;
+        if (panelBox && panelBox.visible) {
+            const panelBottom = Math.round(panelBox.y + panelBox.height);
+            if (top < panelBottom)
+                top = panelBottom;
+        }
+        return {
+            x: Math.round(wa.x + gaps),
+            y: Math.round(top + gaps),
+            w: Math.max(Math.round(wa.width - 2 * gaps), 80),
+            h: barH,
+        };
+    }
+
+    _activateTab(win) {
+        if (!win)
+            return;
+        let id = 0;
+        try {
+            id = win.get_id();
+        } catch {
+            id = 0;
+        }
+        if (id)
+            i3Command(`focusid ${id}`);
+        try {
+            win.activate(global.get_current_time());
+        } catch {
+            /* focusid already handled WM side */
+        }
+        this._queueSync();
+    }
+
+    _tabStyle(focused) {
+        return focused
+            ? 'background-color: #3584e4; color: #ffffff; padding: 4px 10px; font-weight: bold;'
+            : 'background-color: #2b2b2b; color: #deddda; padding: 4px 10px;';
+    }
+
+    _updateFocusStyles(focus) {
+        for (const entry of this._tabButtons) {
+            const focused = entry.win === focus;
+            try {
+                entry.button.set_style(this._tabStyle(focused));
+                const child = entry.button.get_child();
+                if (child)
+                    child.set_style(focused ? 'color: #ffffff; font-weight: bold;' : 'color: #deddda;');
+            } catch {
+                /* ignore */
+            }
+        }
     }
 
     _rebuildTabs() {
-        if (this._display.get_wm_mode() !== Meta.WmMode.I3) {
+        if (this._display.get_wm_mode() !== Meta.WmMode.I3 ||
+            Main.overview.visible) {
             this._clearBars();
             return;
         }
 
-        let groups;
-        try {
-            groups = this._display.get_i3_chrome().deepUnpack();
-        } catch {
-            return;
-        }
-        if (!groups || groups.length === 0) {
-            const layout = currentLayout();
-            if (layout === 'tabbed' || layout === 'stacked')
-                return;
+        const layout = currentLayout();
+        if (layout !== 'tabbed' && layout !== 'stacked') {
             this._clearBars();
             return;
         }
+
+        const wins = this._workspaceWindows();
+        if (wins.length === 0) {
+            this._clearBars();
+            return;
+        }
+
+        const focus = this._display.focus_window;
+        const stacked = layout === 'stacked';
+        const nTabs = Math.min(wins.length, 16);
+        const slice = wins.slice(0, nTabs);
+        const barH = stacked ? FOLLETTO_TAB_H * nTabs : FOLLETTO_TAB_H;
+        const strip = this._tabStripRect(barH);
+        const ids = slice.map(w => {
+            try {
+                return String(w.get_id());
+            } catch {
+                return '?';
+            }
+        }).join(',');
+        const signature = `${layout}|${ids}|${strip.x},${strip.y},${strip.w},${strip.h}`;
+
+        /* Stessa struttura: aggiorna solo highlight, non distruggere i button (sennò i click falliscono). */
+        if (this._box && this._signature === signature) {
+            this._updateFocusStyles(focus);
+            this._placeBelowSystemUi();
+            return;
+        }
+
         this._clearBars();
+        const layer = this._ensureLayer();
+        const box = new St.BoxLayout({
+            vertical: stacked,
+            reactive: true,
+            style: 'background-color: #1a1a1a; border: 1px solid #3584e4;',
+        });
+        box.set_position(strip.x, strip.y);
+        box.set_size(strip.w, strip.h);
+        layer.add_child(box);
+        this._box = box;
+        this._bars.push(box);
+        this._signature = signature;
 
-        const panelBox = Main.layoutManager.panelBox;
-        if (!panelBox)
-            return;
-
-        for (const group of groups) {
-            if (!Array.isArray(group) || group.length < 6)
-                continue;
-            const [layout, x, _y, w, _h, tabs] = group;
-            if (!tabs || tabs.length === 0)
-                continue;
-            if (![x, w].every(n => Number.isFinite(n)) || w < 8)
-                continue;
-
-            const stacked = layout === 'stacked';
-            const nTabs = Math.min(tabs.length, 16);
-            const box = new St.BoxLayout({
-                vertical: false,
-                reactive: true,
-                x_expand: false,
-                y_expand: false,
-                style: stacked
-                    ? 'background-color: #1e1e1e; border-left: 3px solid #3584e4;'
-                    : 'background-color: #1e1e1e;',
-            });
-            /* Stay inside the panel allocation so we never cover window actors. */
-            box.set_position(Math.round(x), 0);
-            box.set_size(Math.round(Math.min(w, panelBox.width)), panelBox.height);
-            panelBox.add_child(box);
-            this._bars.push(box);
-            this._fillBar(box, false, tabs.slice(0, nTabs));
-        }
-    }
-
-    _fillBar(box, stacked, tabs) {
-        for (const tab of tabs) {
-            if (!Array.isArray(tab) || tab.length < 3)
-                continue;
-            const [id, title, focused] = tab;
-            const label = title && String(title).length > 0 ? String(title) : _('Senza titolo');
+        for (const win of slice) {
+            const focused = win === focus;
+            let title = '';
+            try {
+                title = win.get_title() || '';
+            } catch {
+                title = '';
+            }
+            const label = title.length > 0 ? title : _('Senza titolo');
             const item = new St.Button({
                 reactive: true,
                 can_focus: false,
+                track_hover: true,
                 x_expand: !stacked,
                 y_expand: stacked,
-                style: focused
-                    ? 'background-color: #3584e4; color: #ffffff; padding: 4px 10px; font-weight: bold;'
-                    : 'background-color: #242424; color: #deddda; padding: 4px 10px;',
+                style: this._tabStyle(focused),
             });
             item.set_child(new St.Label({
                 text: label,
@@ -297,10 +471,12 @@ class FollettoTabChrome {
                 x_expand: true,
                 style: focused ? 'color: #ffffff; font-weight: bold;' : 'color: #deddda;',
             }));
-            if (id)
-                item.connect('clicked', () => i3Command(`focusid ${id}`));
+            item.connect('clicked', () => this._activateTab(win));
             box.add_child(item);
+            this._tabButtons.push({win, button: item});
         }
+
+        this._placeBelowSystemUi();
     }
 }
 
@@ -381,15 +557,12 @@ class FollettoNiriGestures {
 
     _onScroll(event) {
         try {
-            const mods = event.get_state();
-            if (!(mods & Clutter.ModifierType.SUPER_MASK))
-                return Clutter.EVENT_PROPAGATE;
-
             let dx = 0;
             const dir = event.get_scroll_direction();
             if (dir === Clutter.ScrollDirection.SMOOTH) {
                 const [sx, sy] = event.get_scroll_delta();
-                if (Math.abs(sx) >= Math.abs(sy))
+                /* Prefer horizontal; fall back to vertical wheel → horizontal strip. */
+                if (Math.abs(sx) >= Math.abs(sy) && sx !== 0)
                     dx = sx * NIRI_SCROLL_STEP;
                 else
                     dx = sy * NIRI_SCROLL_STEP;
@@ -416,9 +589,326 @@ class FollettoNiriGestures {
     }
 }
 
+class FollettoFocusBorder {
+    constructor() {
+        this._display = global.display;
+        this._settings = null;
+        try {
+            this._settings = new Gio.Settings({schema_id: 'org.folletto.wm'});
+        } catch (e) {
+            console.warn('Folletto focus border settings', e);
+        }
+        this._idle = 0;
+        this._border = null;
+        this._focusWin = null;
+        this._sizeId = 0;
+        this._posId = 0;
+        this._pollId = 0;
+        const queue = () => this._queueSync();
+        this._display.connect('wm-mode-changed', queue);
+        this._display.connect('i3-layout-changed', queue);
+        this._display.connect('notify::focus-window', queue);
+        this._display.connect('workareas-changed', queue);
+        this._display.connect('grab-op-begin', () => {
+            this._startPoll();
+            queue();
+        });
+        this._display.connect('grab-op-end', () => {
+            this._stopPoll();
+            queue();
+        });
+        Main.overview.connectObject(
+            'showing', () => queue(),
+            'hiding', () => queue(),
+            this);
+        if (this._settings) {
+            this._settings.connect('changed::focus-border-enabled', queue);
+            this._settings.connect('changed::focus-border-color', queue);
+            this._settings.connect('changed::focus-border-width', queue);
+        }
+        this._queueSync();
+    }
+
+    _startPoll() {
+        if (this._pollId)
+            return;
+        this._pollId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 50, () => {
+            try {
+                this._sync();
+            } catch {
+                /* ignore */
+            }
+            return GLib.SOURCE_CONTINUE;
+        });
+    }
+
+    _stopPoll() {
+        if (this._pollId) {
+            GLib.source_remove(this._pollId);
+            this._pollId = 0;
+        }
+        this._queueSync();
+    }
+
+    _trackFocusWindow(win) {
+        if (this._focusWin === win)
+            return;
+        if (this._focusWin) {
+            if (this._sizeId)
+                this._focusWin.disconnect(this._sizeId);
+            if (this._posId)
+                this._focusWin.disconnect(this._posId);
+            this._sizeId = 0;
+            this._posId = 0;
+            this._focusWin = null;
+        }
+        if (!win)
+            return;
+        this._focusWin = win;
+        const queue = () => this._queueSync();
+        this._sizeId = win.connect('size-changed', queue);
+        this._posId = win.connect('position-changed', queue);
+    }
+
+    _ensureBorder() {
+        if (this._border)
+            return this._border;
+        this._border = new St.Widget({
+            name: 'folletto-focus-border',
+            reactive: false,
+            visible: false,
+        });
+        /* Chrome sotto i popup di sistema (menu), sopra le finestre. */
+        Main.layoutManager.addChrome(this._border, {
+            affectsStruts: false,
+            affectsInputRegion: false,
+        });
+        try {
+            const ui = Main.layoutManager.uiGroup;
+            if (global.top_window_group && ui.contains(global.top_window_group))
+                ui.set_child_below_sibling(this._border, global.top_window_group);
+            const panel = Main.layoutManager.panelBox;
+            if (panel && ui.contains(panel))
+                ui.set_child_below_sibling(this._border, panel);
+        } catch {
+            /* ignore */
+        }
+        return this._border;
+    }
+
+    _queueSync() {
+        if (this._idle)
+            return;
+        this._idle = GLib.idle_add(GLib.PRIORITY_LOW, () => {
+            this._idle = 0;
+            try {
+                this._sync();
+            } catch (e) {
+                console.warn('Folletto focus border', e);
+            }
+            return GLib.SOURCE_REMOVE;
+        });
+    }
+
+    _settingBool(key, fallback) {
+        try {
+            return this._settings ? this._settings.get_boolean(key) : fallback;
+        } catch {
+            return fallback;
+        }
+    }
+
+    _settingInt(key, fallback) {
+        try {
+            return this._settings ? this._settings.get_int(key) : fallback;
+        } catch {
+            return fallback;
+        }
+    }
+
+    _settingString(key, fallback) {
+        try {
+            return this._settings ? this._settings.get_string(key) : fallback;
+        } catch {
+            return fallback;
+        }
+    }
+
+    _sync() {
+        const enabled = this._settingBool('focus-border-enabled', true);
+        const width = this._settingInt('focus-border-width', 3);
+        const border = this._ensureBorder();
+        if (!enabled || width <= 0 ||
+            this._display.get_wm_mode() !== Meta.WmMode.I3 ||
+            Main.overview.visible) {
+            this._trackFocusWindow(null);
+            border.visible = false;
+            return;
+        }
+
+        const focus = this._display.focus_window;
+        this._trackFocusWindow(focus || null);
+        if (!focus || focus.get_window_type() !== Meta.WindowType.NORMAL ||
+            focus.minimized) {
+            border.visible = false;
+            return;
+        }
+
+        let rect;
+        try {
+            rect = focus.get_frame_rect();
+        } catch {
+            border.visible = false;
+            return;
+        }
+        /* Finestre parcheggiate fuori schermo (tab non attive). */
+        if (!rect || rect.width < 8 || rect.height < 8 ||
+            rect.x < -500 || rect.y < -500) {
+            border.visible = false;
+            return;
+        }
+
+        const color = this._settingString('focus-border-color', '#3584e4') || '#3584e4';
+        const inset = Math.max(width, 1);
+        border.set_style(
+            `border: ${inset}px solid ${color}; background-color: transparent;`);
+        border.set_position(Math.round(rect.x), Math.round(rect.y));
+        border.set_size(Math.round(rect.width), Math.round(rect.height));
+        border.visible = true;
+        try {
+            const ui = Main.layoutManager.uiGroup;
+            if (global.top_window_group && ui.contains(global.top_window_group))
+                ui.set_child_below_sibling(border, global.top_window_group);
+            const panel = Main.layoutManager.panelBox;
+            if (panel && ui.contains(panel))
+                ui.set_child_below_sibling(border, panel);
+        } catch {
+            /* ignore */
+        }
+    }
+}
+
+export const WorkspaceBar = GObject.registerClass(
+class WorkspaceBar extends St.BoxLayout {
+    _init() {
+        super._init({
+            name: 'follettoWorkspaces',
+            style_class: 'panel-status-indicators-box',
+            y_expand: true,
+            y_align: Clutter.ActorAlign.CENTER,
+            accessible_name: _('Workspaces'),
+        });
+
+        this._overviewButton = new St.Button({
+            style_class: 'panel-button',
+            can_focus: true,
+            track_hover: true,
+            y_expand: true,
+            accessible_name: _('Panoramica'),
+            child: new St.Icon({
+                style_class: 'system-status-icon',
+                icon_name: 'view-app-grid-symbolic',
+            }),
+        });
+        this._overviewButton.connect('clicked', () => {
+            if (Main.overview.shouldToggleByCornerOrButton())
+                Main.overview.toggle();
+        });
+        this.add_child(this._overviewButton);
+
+        this._buttons = [];
+        for (let i = 0; i < WORKSPACE_COUNT; i++) {
+            const number = i + 1;
+            const button = new St.Button({
+                style_class: 'panel-button',
+                label: `${number}`,
+                can_focus: true,
+                track_hover: true,
+                y_expand: true,
+                accessible_name: _('Workspace %d').replace('%d', `${number}`),
+            });
+            button.connect('clicked', () => {
+                i3Command(`workspace number ${number}`);
+            });
+            this.add_child(button);
+            this._buttons.push(button);
+        }
+
+        this._activities = null;
+        this._wm = global.workspace_manager;
+        this._display = global.display;
+        this._wm.connectObject(
+            'active-workspace-changed', () => this._sync(),
+            this);
+        this._display.connectObject(
+            'wm-mode-changed', () => this._sync(),
+            this);
+        Main.sessionMode.connectObject('updated', () => this._sync(), this);
+        Main.overview.connectObject(
+            'showing', () => this._syncOverview(),
+            'hiding', () => this._syncOverview(),
+            this);
+        this._sync();
+    }
+
+    trackActivities(button) {
+        this._activities = button ?? null;
+        this._sync();
+    }
+
+    _inUserSession() {
+        return Main.sessionMode.currentMode === 'user';
+    }
+
+    _inI3() {
+        try {
+            return this._display.get_wm_mode() === Meta.WmMode.I3;
+        } catch {
+            return false;
+        }
+    }
+
+    _sync() {
+        const show = this._inUserSession() && this._inI3();
+        this.visible = show;
+
+        if (this._activities)
+            this._activities.visible = !show;
+
+        if (!show)
+            return;
+
+        this._syncOverview();
+
+        const time = global.get_current_time();
+        while (this._wm.n_workspaces < WORKSPACE_COUNT)
+            this._wm.append_new_workspace(false, time);
+
+        const active = this._wm.get_active_workspace_index();
+        for (let i = 0; i < this._buttons.length; i++) {
+            const button = this._buttons[i];
+            const current = i === active;
+            if (current)
+                button.add_style_pseudo_class('checked');
+            else
+                button.remove_style_pseudo_class('checked');
+        }
+    }
+
+    _syncOverview() {
+        const open = Main.overview.visible;
+        if (open)
+            this._overviewButton.add_style_pseudo_class('checked');
+        else
+            this._overviewButton.remove_style_pseudo_class('checked');
+    }
+});
+
 let _dragOverlay = null;
 let _tabChrome = null;
 let _niriGestures = null;
+let _focusBorder = null;
+let _chromeScheduled = false;
 
 function ensureDragOverlay() {
     _dragOverlay ??= new FollettoDragOverlay();
@@ -430,6 +920,27 @@ function ensureTabChrome() {
 
 function ensureNiriGestures() {
     _niriGestures ??= new FollettoNiriGestures();
+}
+
+function ensureFocusBorder() {
+    _focusBorder ??= new FollettoFocusBorder();
+}
+
+function ensureFollettoChrome() {
+    if (_chromeScheduled)
+        return;
+    _chromeScheduled = true;
+    ensureNiriGestures();
+    ensureFocusBorder();
+    /* Piccolo delay: evita add_child su uiGroup durante l’init del panel. */
+    GLib.timeout_add(GLib.PRIORITY_DEFAULT, 400, () => {
+        try {
+            ensureTabChrome();
+        } catch (e) {
+            console.warn('Folletto chrome init', e);
+        }
+        return GLib.SOURCE_REMOVE;
+    });
 }
 
 const FollettoToggle = GObject.registerClass(
@@ -471,7 +982,7 @@ export const Indicator = GObject.registerClass(
 class Indicator extends SystemIndicator {
     _init() {
         super._init();
-        ensureNiriGestures();
+        ensureFollettoChrome();
         this.quickSettingsItems.push(new FollettoToggle());
     }
 });
@@ -480,8 +991,7 @@ export const LayoutIndicator = GObject.registerClass(
 class LayoutIndicator extends PanelMenu.Button {
     _init() {
         super._init(0.5, _('Folletto layout'));
-        /* Drop overlay on uiGroup crashes nested Mutter during layout_tree. */
-        ensureNiriGestures();
+        ensureFollettoChrome();
 
         this._icon = new St.Icon({
             style_class: 'system-status-icon',

@@ -97,21 +97,43 @@ install -m 755 "$REPO_ROOT/overlay/settings/folletto-settings" \
 install -m 755 "$REPO_ROOT/overlay/session/folletto-settings-wrapper" \
   "$PKGDIR/usr/bin/folletto-settings"
 
-# Session wrappers (PATH → /opt/folletto)
+# Session wrappers + shell launcher (lib isolate solo per gnome-shell)
+install -d "$PKGDIR$OPT_PREFIX/libexec"
+install -m 644 "$REPO_ROOT/overlay/session/folletto-session-lib.sh" \
+  "$PKGDIR$OPT_PREFIX/libexec/folletto-session-lib.sh"
+install -m 755 "$REPO_ROOT/overlay/session/folletto-gnome-shell" \
+  "$PKGDIR/usr/bin/folletto-gnome-shell"
 install -m 755 "$REPO_ROOT/overlay/session/folletto-session" \
   "$PKGDIR/usr/bin/folletto-session"
 install -m 755 "$REPO_ROOT/overlay/session/folletto-session-x11" \
   "$PKGDIR/usr/bin/folletto-session-x11"
 
-# Voci login manager
+# Voci login manager + componente sessione (non org.gnome.Shell di sistema)
 install -m 644 "$REPO_ROOT/overlay/session/folletto.desktop" \
   "$PKGDIR/usr/share/wayland-sessions/folletto.desktop"
 install -m 644 "$REPO_ROOT/overlay/session/folletto-xorg.desktop" \
   "$PKGDIR/usr/share/xsessions/folletto-xorg.desktop"
 install -m 644 "$REPO_ROOT/overlay/session/folletto.session" \
   "$PKGDIR/usr/share/gnome-session/sessions/folletto.session"
+install -m 644 "$REPO_ROOT/overlay/session/org.folletto.Shell.desktop" \
+  "$PKGDIR/usr/share/applications/org.folletto.Shell.desktop"
 install -m 644 "$REPO_ROOT/overlay/session/org.folletto.Settings.desktop" \
   "$PKGDIR/usr/share/applications/org.folletto.Settings.desktop"
+
+# Le unit systemd del prefix puntano al path di build (/var/tmp/...):
+# riscrivi verso /opt/folletto (fallback se qualcuno non usa --builtin).
+if [ -d "$PKGDIR$OPT_PREFIX/lib/systemd/user" ]; then
+  find "$PKGDIR$OPT_PREFIX/lib/systemd/user" -type f \( -name '*.service' -o -name '*.target' \) \
+    -exec sed -i \
+      -e "s|/var/tmp/folletto/prefix|$OPT_PREFIX|g" \
+      -e "s|ExecStart=$OPT_PREFIX/bin/gnome-shell|ExecStart=/usr/bin/folletto-gnome-shell|g" \
+      {} +
+fi
+# Desktop file shell nel prefix: punta al wrapper
+if [ -f "$PKGDIR$OPT_PREFIX/share/applications/org.gnome.Shell.desktop" ]; then
+  sed -i 's|^Exec=.*|Exec=/usr/bin/folletto-gnome-shell|' \
+    "$PKGDIR$OPT_PREFIX/share/applications/org.gnome.Shell.desktop"
+fi
 
 # Schema e keybinding anche in /usr così Impostazioni/GNOME li vedono
 install -m 644 "$REPO_ROOT/overlay/mutter/data/org.folletto.wm.gschema.xml" \

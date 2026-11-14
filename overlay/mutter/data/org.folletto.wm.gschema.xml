@@ -24,6 +24,25 @@
       <summary>Default split layout for new containers</summary>
       <description>grid (auto H/V), niri (scrollable strip), splith, splitv, tabbed or stacked</description>
     </key>
+    <key name="mod-key" type="s">
+      <default>'Super'</default>
+      <summary>Primary modifier key for Folletto shortcuts</summary>
+      <description>Super, Alt or Ctrl. Changing this rewrites the shortcut bindings that use the previous modifier.</description>
+    </key>
+    <key name="focus-border-enabled" type="b">
+      <default>true</default>
+      <summary>Highlight the focused tiled window with a colored border</summary>
+    </key>
+    <key name="focus-border-color" type="s">
+      <default>'#3584e4'</default>
+      <summary>Focus border color</summary>
+      <description>CSS color (hex or rgb) for the focused window outline</description>
+    </key>
+    <key name="focus-border-width" type="i">
+      <default>3</default>
+      <summary>Focus border thickness in pixels</summary>
+      <range min="0" max="16"/>
+    </key>
     <key name="toggle-mode" type="as">
       <default><![CDATA[['<Super><Shift>t']]]></default>
       <summary>Toggle i3 / normal mode</summary>

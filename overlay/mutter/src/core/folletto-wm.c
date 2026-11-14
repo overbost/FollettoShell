@@ -31,7 +31,7 @@
 #include "x11/meta-x11-frame.h"
 #endif
 
-#define FOLLETTO_TAB_H 28
+#define FOLLETTO_TAB_H 32
 
 typedef enum
 {
@@ -111,6 +111,14 @@ static gboolean folletto_wm_export_dbus_idle (gpointer data);
 static FollettoLayout layout_from_name (const char *name);
 static gboolean tree_is_niri (FollettoWm *wm, FollettoTree *tree);
 static void rebuild_as_niri (FollettoTree *tree);
+static void rebuild_as_grid (FollettoTree *tree);
+static void rebuild_as_tabs (FollettoTree *tree,
+                             FollettoLayout layout);
+static void insert_binary_split (FollettoTree   *tree,
+                                 FollettoNode   *focus,
+                                 FollettoNode   *leaf,
+                                 FollettoLayout  layout);
+static FollettoLayout grid_split_for_focus (FollettoNode *focus);
 static void niri_layout_tree (FollettoWm *wm, FollettoTree *tree, const MtkRectangle *area);
 static FollettoNode * niri_column_node (FollettoNode *leaf);
 static void cmd_scroll_delta (FollettoWm *wm, double dx);
@@ -395,12 +403,36 @@ layout_node (FollettoWm          *wm,
 
   if (node_is_tab_container (node))
     {
+      FollettoNode *active = NULL;
+
       content_area_for_tabs (node, area, &content);
+      /* Tutte le tab condividono l’area contenuto; quella attiva viene alzata.
+       * (Niente off-screen: altrimenti le nuove finestre restavano invisibili.) */
+      if (focus)
+        {
+          FollettoNode *walk = focus;
+
+          while (walk)
+            {
+              if (walk->parent == node)
+                {
+                  active = walk;
+                  break;
+                }
+              walk = walk->parent;
+            }
+        }
+      if (!active && node->children->len > 0)
+        active = g_ptr_array_index (node->children, 0);
+
       for (i = 0; i < node->children->len; i++)
         {
           FollettoNode *ch = g_ptr_array_index (node->children, i);
+
           layout_node (wm, ch, &content, focus);
         }
+      if (active && active->window && !active->window->unmanaging)
+        meta_window_raise (active->window);
       return;
     }
 
@@ -595,11 +627,15 @@ folletto_wm_get_layout (FollettoWm *wm)
   leaf = focused_leaf (wm);
   if (leaf && leaf->floating)
     return "floating";
-  /* Griglia/Niri: strategia di inserimento, non solo layout del container. */
+  /* Modalità workspace: next_layout vince su eventuali split locali. */
   if (wm->next_layout == FOLLETTO_LAYOUT_GRID)
     return "grid";
   if (wm->next_layout == FOLLETTO_LAYOUT_NIRI)
     return "niri";
+  if (wm->next_layout == FOLLETTO_LAYOUT_TABBED)
+    return "tabbed";
+  if (wm->next_layout == FOLLETTO_LAYOUT_STACKED)
+    return "stacked";
   if (!leaf)
     return layout_name (wm->next_layout);
   if (leaf->parent)
@@ -738,6 +774,170 @@ rebuild_as_niri (FollettoTree *tree)
   else
     tree->focus = first_leaf (strip);
   g_ptr_array_free (leaves, TRUE);
+}
+
+/* Ricostruisce l’albero come griglia binaria H/V (stesso algoritmo di inserimento). */
+static void
+rebuild_as_grid (FollettoTree *tree)
+{
+  GPtrArray *leaves;
+  GPtrArray *tiled;
+  FollettoNode *old_focus;
+  guint i;
+
+  if (!tree)
+    return;
+
+  leaves = g_ptr_array_new ();
+  tiled = g_ptr_array_new ();
+  old_focus = tree->focus;
+  if (tree->root)
+    {
+      if (node_is_leaf (tree->root))
+        {
+          tree->root->parent = NULL;
+          g_ptr_array_add (leaves, tree->root);
+        }
+      else
+        {
+          free_containers_keep_leaves (tree->root, leaves);
+        }
+    }
+  tree->root = NULL;
+  tree->view_offset = 0;
+
+  for (i = 0; i < leaves->len; i++)
+    {
+      FollettoNode *L = g_ptr_array_index (leaves, i);
+
+      if (L->floating)
+        continue;
+      L->parent = NULL;
+      L->percent = 1.0;
+      g_ptr_array_add (tiled, L);
+    }
+
+  if (tiled->len == 0)
+    {
+      tree->focus = NULL;
+    }
+  else if (tiled->len == 1)
+    {
+      FollettoNode *L = g_ptr_array_index (tiled, 0);
+
+      tree->root = L;
+      tree->focus = L;
+    }
+  else
+    {
+      FollettoNode *first = g_ptr_array_index (tiled, 0);
+
+      tree->root = first;
+      tree->focus = first;
+      for (i = 1; i < tiled->len; i++)
+        {
+          FollettoNode *L = g_ptr_array_index (tiled, i);
+          FollettoNode *target = tree->focus;
+
+          insert_binary_split (tree, target, L, grid_split_for_focus (target));
+        }
+    }
+
+  if (old_focus && !old_focus->floating &&
+      (old_focus->parent != NULL || tree->root == old_focus))
+    tree->focus = old_focus;
+  else if (tree->root)
+    tree->focus = first_leaf (tree->root);
+
+  g_ptr_array_free (leaves, TRUE);
+  g_ptr_array_free (tiled, TRUE);
+}
+
+/* Un unico container tabbed/stacked con tutte le foglie tiled del workspace. */
+static void
+rebuild_as_tabs (FollettoTree  *tree,
+                 FollettoLayout layout)
+{
+  GPtrArray *leaves;
+  GPtrArray *tiled;
+  FollettoNode *old_focus;
+  FollettoNode *tabs;
+  guint i;
+
+  if (!tree)
+    return;
+  if (layout != FOLLETTO_LAYOUT_TABBED && layout != FOLLETTO_LAYOUT_STACKED)
+    return;
+
+  leaves = g_ptr_array_new ();
+  tiled = g_ptr_array_new ();
+  old_focus = tree->focus;
+  if (tree->root)
+    {
+      if (node_is_leaf (tree->root))
+        {
+          tree->root->parent = NULL;
+          g_ptr_array_add (leaves, tree->root);
+        }
+      else
+        {
+          free_containers_keep_leaves (tree->root, leaves);
+        }
+    }
+  tree->root = NULL;
+  tree->view_offset = 0;
+
+  for (i = 0; i < leaves->len; i++)
+    {
+      FollettoNode *L = g_ptr_array_index (leaves, i);
+
+      if (L->floating)
+        continue;
+      L->parent = NULL;
+      L->percent = 1.0;
+      g_ptr_array_add (tiled, L);
+    }
+
+  if (tiled->len == 0)
+    {
+      tree->focus = NULL;
+      g_ptr_array_free (leaves, TRUE);
+      g_ptr_array_free (tiled, TRUE);
+      return;
+    }
+
+  if (tiled->len == 1)
+    {
+      FollettoNode *L = g_ptr_array_index (tiled, 0);
+
+      /* Anche una sola finestra: container tabbed così compare la barra. */
+      tabs = node_new_split (layout);
+      L->parent = tabs;
+      L->percent = 1.0;
+      g_ptr_array_add (tabs->children, L);
+      tree->root = tabs;
+      tree->focus = L;
+    }
+  else
+    {
+      tabs = node_new_split (layout);
+      for (i = 0; i < tiled->len; i++)
+        {
+          FollettoNode *L = g_ptr_array_index (tiled, i);
+
+          L->parent = tabs;
+          L->percent = 1.0 / tiled->len;
+          g_ptr_array_add (tabs->children, L);
+        }
+      tree->root = tabs;
+      if (old_focus && !old_focus->floating && old_focus->parent == tabs)
+        tree->focus = old_focus;
+      else
+        tree->focus = g_ptr_array_index (tiled, 0);
+    }
+
+  g_ptr_array_free (leaves, TRUE);
+  g_ptr_array_free (tiled, TRUE);
 }
 
 static void
@@ -1318,6 +1518,17 @@ folletto_insert_window (FollettoWm *wm,
           tree->focus = leaf;
           tree->view_offset = 0;
         }
+      else if (wm->next_layout == FOLLETTO_LAYOUT_TABBED ||
+               wm->next_layout == FOLLETTO_LAYOUT_STACKED)
+        {
+          FollettoNode *tabs = node_new_split (wm->next_layout);
+
+          leaf->parent = tabs;
+          leaf->percent = 1.0;
+          g_ptr_array_add (tabs->children, leaf);
+          tree->root = tabs;
+          tree->focus = leaf;
+        }
       else
         {
           /* Prima finestra (griglia/i3): schermo intero. */
@@ -1369,6 +1580,40 @@ folletto_insert_window (FollettoWm *wm,
           tree->focus = leaf;
         }
     }
+  else if (wm->next_layout == FOLLETTO_LAYOUT_TABBED ||
+           wm->next_layout == FOLLETTO_LAYOUT_STACKED)
+    {
+      FollettoLayout tabs_layout = wm->next_layout;
+      FollettoNode *tabs;
+
+      if (!tree->root || !node_is_tab_container (tree->root) ||
+          tree->root->layout != tabs_layout)
+        rebuild_as_tabs (tree, tabs_layout);
+
+      tabs = tree->root;
+      if (!tabs || !node_is_tab_container (tabs))
+        {
+          FollettoNode *wrap = node_new_split (tabs_layout);
+
+          if (tree->root)
+            {
+              tree->root->parent = wrap;
+              tree->root->percent = 1.0;
+              g_ptr_array_add (wrap->children, tree->root);
+            }
+          tree->root = wrap;
+          tabs = wrap;
+        }
+
+      leaf->parent = tabs;
+      leaf->percent = 1.0;
+      g_ptr_array_add (tabs->children, leaf);
+      normalize_percents (tabs);
+      tree->focus = leaf;
+      /* Focus subito sulla nuova tab, così il layout non la nasconde. */
+      meta_window_activate (window,
+                            meta_display_get_current_time_roundtrip (wm->display));
+    }
   else if (wm->next_layout == FOLLETTO_LAYOUT_GRID)
     {
       FollettoNode *target = (focus && !focus->floating) ? focus
@@ -1411,8 +1656,9 @@ flatten_if_single (FollettoTree *tree,
 
   if (!parent || !parent->children || parent->children->len != 1)
     return;
-  /* Mantieni lo strip Niri anche con una sola colonna. */
-  if (parent->layout == FOLLETTO_LAYOUT_NIRI)
+  /* Mantieni strip Niri e container tabbed/stacked anche con un solo figlio. */
+  if (parent->layout == FOLLETTO_LAYOUT_NIRI ||
+      node_is_tab_container (parent))
     return;
   only = g_ptr_array_index (parent->children, 0);
   if (parent == tree->root)
@@ -1721,9 +1967,14 @@ cmd_layout (FollettoWm    *wm,
 
   wm->next_layout = layout;
 
-  /* Griglia: strategia di inserimento, non layout geometrico del container. */
+  /* Griglia: ricostruisce l’albero con split binari H/V alternati. */
   if (layout == FOLLETTO_LAYOUT_GRID)
     {
+      if (tree)
+        {
+          rebuild_as_grid (tree);
+          folletto_layout_tree (wm, tree);
+        }
       emit_layout_changed (wm);
       return;
     }
@@ -1733,6 +1984,17 @@ cmd_layout (FollettoWm    *wm,
       if (tree)
         {
           rebuild_as_niri (tree);
+          folletto_layout_tree (wm, tree);
+        }
+      emit_layout_changed (wm);
+      return;
+    }
+
+  if (layout == FOLLETTO_LAYOUT_TABBED || layout == FOLLETTO_LAYOUT_STACKED)
+    {
+      if (tree)
+        {
+          rebuild_as_tabs (tree, layout);
           folletto_layout_tree (wm, tree);
         }
       emit_layout_changed (wm);
@@ -1985,6 +2247,7 @@ cmd_focus_id (FollettoWm *wm,
       if (!window || meta_window_get_id (window) != id)
         continue;
       meta_window_activate (window, meta_display_get_current_time (wm->display));
+      meta_window_raise (window);
       tree_for_window (wm, window)->focus = node;
       folletto_layout_tree (wm, tree_for_window (wm, window));
       emit_layout_changed (wm);

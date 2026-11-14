@@ -1,18 +1,31 @@
 #!/bin/sh
-# Wrapper sessione Folletto X11 (GDM / display manager). Non usa --replace.
+# Wrapper sessione Folletto X11 (GDM / display manager).
 set -eu
-PREFIX="${FOLLETTO_PREFIX:-/opt/folletto}"
-if [ ! -x "$PREFIX/bin/gnome-shell" ]; then
-  echo "Folletto non trovato in $PREFIX (manca gnome-shell)." >&2
+_folletto_lib=
+for _c in \
+  "${FOLLETTO_PREFIX:-/opt/folletto}/libexec/folletto-session-lib.sh" \
+  /usr/libexec/folletto/folletto-session-lib.sh \
+  "$(CDPATH= cd -- "$(dirname "$0")" && pwd)/folletto-session-lib.sh"
+do
+  if [ -f "$_c" ]; then
+    _folletto_lib=$_c
+    break
+  fi
+done
+[ -n "$_folletto_lib" ] || {
+  echo "folletto-session-lib.sh non trovato." >&2
   exit 1
-fi
-export PATH="$PREFIX/bin:$PATH"
-export LD_LIBRARY_PATH="$PREFIX/lib:$PREFIX/lib/mutter-16:$PREFIX/lib/gnome-shell${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-export GI_TYPELIB_PATH="$PREFIX/lib/mutter-16:$PREFIX/lib/gnome-shell${GI_TYPELIB_PATH:+:$GI_TYPELIB_PATH}"
-export GSETTINGS_SCHEMA_DIR="$PREFIX/share/glib-2.0/schemas${GSETTINGS_SCHEMA_DIR:+:$GSETTINGS_SCHEMA_DIR}"
-export XDG_DATA_DIRS="$PREFIX/share:${XDG_DATA_DIRS:-/usr/share:/usr/local/share}"
-export MUTTER_PLUGIN_DIR="$PREFIX/lib/mutter-16/plugins"
-export XDG_CURRENT_DESKTOP="${XDG_CURRENT_DESKTOP:-GNOME}"
+}
+# shellcheck source=folletto-session-lib.sh
+. "$_folletto_lib"
+folletto_setup_prefix
+folletto_disable_extensions_on_first_run
 export XDG_SESSION_TYPE=x11
 unset WAYLAND_DISPLAY || true
-exec gnome-session --session=folletto "$@"
+
+# --builtin: vedi folletto-session (Wayland).
+if [ -n "${FOLLETTO_SESSION_LOG:-}" ]; then
+  echo "exec gnome-session --session=folletto --builtin $*" >>"$FOLLETTO_SESSION_LOG"
+  exec gnome-session --session=folletto --builtin "$@" >>"$FOLLETTO_SESSION_LOG" 2>&1
+fi
+exec gnome-session --session=folletto --builtin "$@"

@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Folletto Shell
+Comment=Mutter/GNOME Shell Folletto (tiling i3)
+Exec=/usr/bin/folletto-gnome-shell
+TryExec=/usr/bin/folletto-gnome-shell
+NoDisplay=true
+X-GNOME-Autostart-Phase=DisplayServer
+X-GNOME-Provides=panel;windowmanager;
+X-GNOME-Autostart-Notify=true
+X-GNOME-HiddenUnderSystemd=true

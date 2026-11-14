@@ -5,5 +5,5 @@ Exec=folletto-session
 TryExec=folletto-session
 Type=Application
 DesktopNames=GNOME
+# Evita che GDM resti in attesa infinita se la sessione non registra correttamente
 X-GDM-SessionRegisters=true
-X-GDM-CanRunHeadless=true

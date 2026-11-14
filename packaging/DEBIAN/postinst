@@ -17,6 +17,23 @@ case "$1" in
     if command -v update-desktop-database >/dev/null 2>&1; then
       update-desktop-database -q /usr/share/applications || true
     fi
+    # Assicura path corretti nelle unit systemd del prefix (rebuild da path di build).
+    if [ -d "$FOLLETTO_PREFIX/lib/systemd/user" ]; then
+      find "$FOLLETTO_PREFIX/lib/systemd/user" -type f \( -name '*.service' -o -name '*.target' \) \
+        -exec sed -i \
+          -e "s|/var/tmp/folletto/prefix|$FOLLETTO_PREFIX|g" \
+          -e "s|ExecStart=$FOLLETTO_PREFIX/bin/gnome-shell|ExecStart=/usr/bin/folletto-gnome-shell|g" \
+          {} + 2>/dev/null || true
+    fi
+    if [ -f "$FOLLETTO_PREFIX/share/applications/org.gnome.Shell.desktop" ]; then
+      sed -i 's|^Exec=.*|Exec=/usr/bin/folletto-gnome-shell|' \
+        "$FOLLETTO_PREFIX/share/applications/org.gnome.Shell.desktop" 2>/dev/null || true
+    fi
+    cat >&2 <<'EOF'
+Folletto: sessioni «Folletto» / «Folletto on Xorg» registrate.
+Se GDM si era bloccato con un pacchetto precedente, riavvia gdm3 (o il PC)
+e controlla i log in ~/.local/state/folletto/ in caso di schermo nero.
+EOF
     ;;
 esac
 

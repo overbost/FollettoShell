@@ -16,7 +16,7 @@ folletto_bind_host_display
 
 export MUTTER_DEBUG_DUMMY_MODE_SPECS="${MUTTER_DEBUG_DUMMY_MODE_SPECS:-$FOLLETTO_NESTED_SIZE}"
 
-echo "Nested Folletto Shell 1600x900 (Wayland). Top bar: layout. Super+Shift+t: toggle i3."
+echo "Nested Folletto Shell ${FOLLETTO_NESTED_SIZE%@*} (Wayland). Top bar: layout. Super+Shift+t: toggle i3."
 FOLLETTO_SCRIPT_DIR=$SCRIPT_DIR
 export FOLLETTO_SCRIPT_DIR
 folletto_record_nested_pid
